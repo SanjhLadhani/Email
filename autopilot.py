@@ -79,7 +79,7 @@ def main() -> None:
     # in email subjects; without this a single emoji aborts the whole check.
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")
-    parser =argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--every", type=float, default=5, help="minutes between mail checks")
     parser.add_argument("--limit", type=int, default=50, help="newest unread emails to consider per check")
     parser.add_argument("--port", type=int, default=5000, help="dashboard port")

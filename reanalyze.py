@@ -36,7 +36,7 @@ def main() -> int:
         1 if the model server is unreachable so nothing was changed.
     """
     if check_ollama.main() != 0:
-        print("\nNothing was changed. Start the Colab notebook, update OLLAMA_URL in .env, and retry.")
+        print("\nNothing was changed. Set up a model first (FALLBACK_API_KEY in .env, or the Colab notebook) and retry.")
         return 1
 
     backup = config.DB_PATH.with_name(f"triage.backup-{time.strftime('%Y%m%d-%H%M%S')}.db")

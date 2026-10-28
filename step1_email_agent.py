@@ -1,8 +1,9 @@
-"""Step 1 - The triage agent: Pydantic AI + a local Ollama model.
+"""Step 1 - The triage agent: Pydantic AI + a model on a Colab GPU or a hosted API.
 
 A Pydantic AI agent turns an ``Email`` (input schema) into a validated
 ``EmailAnalysis`` (output schema). The agent has no tools and cannot send
-anything; it only analyzes text.
+anything; it only analyzes text. A second agent rewrites a draft reply when
+you give it an instruction. The model never runs on this computer.
 
 It is personalized two ways:
 

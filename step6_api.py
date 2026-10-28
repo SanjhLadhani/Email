@@ -41,10 +41,11 @@ def index():
 @app.get("/api/config")
 def get_config():
     """Return the mailbox address and model name for display and Gmail links."""
+    found = config.backend()
     return jsonify(
         email=config.EMAIL_ADDRESS,
         name=user_profile.signature_name(),
-        model=config.ollama_model(),
+        model=found.model if found else config.ollama_model(),
     )
 
 
