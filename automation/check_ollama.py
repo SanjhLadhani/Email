@@ -2,7 +2,7 @@
 
 Run it any time to see what the agent would use::
 
-    python check_ollama.py
+    python -m automation.check_ollama
 """
 
 import sys

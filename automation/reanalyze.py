@@ -14,7 +14,7 @@ overwritten by the new analysis (they stay in the feedback table as examples).
 
 Run::
 
-    python reanalyze.py
+    python -m automation.reanalyze
 """
 
 import shutil
@@ -22,10 +22,10 @@ import sys
 import time
 
 import config
-import check_ollama
-import step3_storage as storage
-from step1_email_agent import analyze_email
-from step2_gmail_reader import fetch_emails
+from automation import check_ollama
+from automation import step3_storage as storage
+from agent.step1_email_agent import analyze_email
+from automation.step2_gmail_reader import fetch_emails
 
 
 def main() -> int:

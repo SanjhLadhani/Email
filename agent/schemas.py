@@ -7,9 +7,9 @@ them without pulling in the model.
 import re
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, PrivateAttr
 
-import tasks
+from agent import tasks
 
 MAX_BODY_CHARS = 4000
 
@@ -69,7 +69,21 @@ class Email(BaseModel):
 class RewrittenReply(BaseModel):
     """The agent's output when it rewrites a draft (output schema)."""
 
-    reply: str = Field(description="The new reply body, without greeting or sign-off")
+    # Weaker models sometimes name the field after an email part instead of "reply".
+    reply: str = Field(
+        validation_alias=AliasChoices("reply", "body", "text", "message", "content"),
+        description="The new reply body, without greeting or sign-off",
+    )
+    reply_name: str = Field(
+        default="",
+        description="First name of the person to greet; empty if the sender is a company "
+        "or automated system, or no first name is known.",
+    )
+    sender_is_person: bool = Field(
+        default=True,
+        description="True only if an individual person wrote the email; False for "
+        "companies, institutions and automated systems.",
+    )
 
 
 class EmailAnalysis(BaseModel):
@@ -96,3 +110,11 @@ class EmailAnalysis(BaseModel):
         description="A polite draft reply; do not claim actions "
         "have been completed unless confirmed"
     )
+
+    # Not part of the model's output schema: filled in by the code with what the agent looked up.
+    _steps: list[dict] = PrivateAttr(default_factory=list)
+
+    @property
+    def steps(self) -> list[dict]:
+        """What the agent checked before deciding, as ``[{"label", "result"}]`` (empty if nothing)."""
+        return self._steps

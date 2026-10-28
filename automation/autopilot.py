@@ -7,10 +7,10 @@ end), it waits for the next one and carries on - no restart needed.
 
 Run::
 
-    python autopilot.py                 # dashboard + check mail every 5 minutes
-    python autopilot.py --every 2       # check every 2 minutes
-    python autopilot.py --reanalyze     # first refresh stored emails with the current prompt
-    python autopilot.py --no-dashboard  # just the mail loop
+    python -m automation.autopilot                 # dashboard + check mail every 5 minutes
+    python -m automation.autopilot --every 2       # check every 2 minutes
+    python -m automation.autopilot --reanalyze     # first refresh stored emails with the current prompt
+    python -m automation.autopilot --no-dashboard  # just the mail loop
 
 Stop with Ctrl+C.
 """
@@ -21,10 +21,10 @@ import sys
 import threading
 import time
 
-import check_ollama
+from automation import check_ollama
 import config
-import reanalyze
-from step4_pipeline import process_new_emails
+from automation import reanalyze
+from automation.step4_pipeline import process_new_emails
 
 
 LOCK_PORT = 50123  # nothing else uses it; binding it is how we detect a running copy
@@ -53,7 +53,7 @@ def start_dashboard(port: int) -> None:
     """Serve the dashboard in a background thread (http://127.0.0.1:<port>)."""
     from werkzeug.serving import make_server
 
-    from step6_api import app
+    from dashboard.step6_api import app
 
     server = make_server("127.0.0.1", port, app, threaded=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()

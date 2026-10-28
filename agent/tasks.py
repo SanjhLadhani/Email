@@ -83,8 +83,13 @@ def rewrite_instructions() -> str:
 
 def rewrite_prompt(sender: str, subject: str, body: str, draft: str, instruction: str) -> str:
     """Render the email, the current draft and the user's instruction as the user message."""
-    return load()["rewrite_reply"]["prompt"].format(
-        sender=sender, subject=subject, body=body, draft=draft, instruction=instruction
+    t = load()["rewrite_reply"]
+    return t["prompt"].format(
+        sender=sender,
+        subject=subject,
+        body=body,
+        draft=draft.strip() or t["no_draft"],
+        instruction=instruction.strip() or t["write_new"],
     )
 
 

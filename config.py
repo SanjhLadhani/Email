@@ -14,7 +14,6 @@ import os
 import time
 import urllib.error
 import urllib.request
-from datetime import date
 from typing import NamedTuple
 from pathlib import Path
 from urllib.parse import urlparse
@@ -132,7 +131,8 @@ def ollama_base_url() -> str:
 # --------------------------------------------------------------------------
 
 # OpenAI-compatible endpoints of hosted providers, with a default model each.
-# Override the model with FALLBACK_MODEL in .env (model names change over time).
+# Override the model with FALLBACK_MODEL in .env (model names change over time). It can be a
+# comma-separated list: when one model's free quota runs out (HTTP 429) the next one is used.
 API_PRESETS = {
     "groq": ("https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
     "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.5-flash"),
@@ -150,8 +150,9 @@ class Backend(NamedTuple):
 
     kind: str  # "colab" or "api"
     base_url: str  # OpenAI-compatible base URL
-    model: str
+    model: str  # the model tried first
     api_key: str | None
+    models: tuple[str, ...] = ()  # all models to try, in order (API only)
 
 
 _backend_cache: dict = {"checked_at": 0.0, "value": None}
@@ -196,7 +197,8 @@ def _api_backend() -> Backend | None:
             return None
     except Exception:
         return None  # provider unreachable right now
-    return Backend("api", base_url, _env("FALLBACK_MODEL", default_model), key)
+    models = tuple(m.strip() for m in _env("FALLBACK_MODEL", default_model).split(",") if m.strip())
+    return Backend("api", base_url, models[0], key, models)
 
 
 def backend(max_age: float = 30.0) -> Backend | None:
@@ -215,38 +217,6 @@ def backend(max_age: float = 30.0) -> Backend | None:
             break
     _backend_cache.update(checked_at=time.time(), value=found)
     return found
-
-
-USAGE_PATH = Path(__file__).parent / "api_usage.json"
-
-
-class DailyLimitReached(RuntimeError):
-    """Today's hosted-API allowance (``API_DAILY_LIMIT``) is used up."""
-
-
-def count_api_call() -> None:
-    """Count one hosted-API request for today and refuse past ``API_DAILY_LIMIT``.
-
-    Keeps usage inside a free tier's daily quota. Colab is never counted.
-
-    Raises:
-        DailyLimitReached: When today's limit (default 100 analyses) is used up.
-    """
-    limit = int(_env("API_DAILY_LIMIT", "100") or 100)
-    today = date.today().isoformat()
-    try:
-        usage = json.loads(USAGE_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        usage = {}
-    if usage.get("day") != today:
-        usage = {"day": today, "calls": 0}
-    if usage["calls"] >= limit:
-        raise DailyLimitReached(
-            f"Daily API limit reached ({limit} per day, to stay within the free tier). "
-            "It resets tomorrow; raise API_DAILY_LIMIT in .env to allow more."
-        )
-    usage["calls"] += 1
-    USAGE_PATH.write_text(json.dumps(usage), encoding="utf-8")
 
 
 def require_email_credentials() -> tuple[str, str]:

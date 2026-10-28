@@ -3,16 +3,15 @@
 Ties steps 1-3 together. Run it on its own (or on a schedule) to keep the
 database up to date::
 
-    python step4_pipeline.py
+    python -m automation.step4_pipeline
 """
 
 from datetime import date
 from typing import NamedTuple
 
-import config
-from step1_email_agent import analyze_email
-from step2_gmail_reader import fetch_emails, fetch_received_dates
-from step3_storage import (
+from agent.step1_email_agent import analyze_email
+from automation.step2_gmail_reader import fetch_emails, fetch_received_dates
+from automation.step3_storage import (
     is_processed,
     missing_received_dates,
     save_result,
@@ -43,6 +42,7 @@ class RunResult(NamedTuple):
     new: int  # newly analyzed and stored
     already: int  # skipped: analyzed on an earlier run
     failed: int  # could not be analyzed (kept for the next run)
+    message_ids: tuple = ()  # every email looked at, newest first (the dashboard shows just these)
 
 
 def process_new_emails(
@@ -77,11 +77,6 @@ def process_new_emails(
             continue
         try:
             analysis = analyze_email(item)
-        except config.DailyLimitReached as exc:
-            # Nothing else can be analyzed today: stop instead of failing every remaining email.
-            print(exc)
-            failed += sum(1 for rest in emails[emails.index(item):] if not is_processed(rest.message_id))
-            break
         except Exception as exc:  # model/network errors: retry next run
             print(f"Skipped {item.subject!r}: {exc}")
             failed += 1
@@ -90,7 +85,7 @@ def process_new_emails(
         flag = "!! " if analysis.urgency.value == "critical" else ""
         print(f"{flag}[{analysis.urgency.value}] {item.subject}")
         new += 1
-    return RunResult(len(emails), new, already, failed)
+    return RunResult(len(emails), new, already, failed, tuple(e.message_id for e in emails))
 
 
 if __name__ == "__main__":

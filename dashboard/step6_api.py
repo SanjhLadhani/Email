@@ -6,25 +6,26 @@ the strongest action is saving a Gmail draft.
 
 Run with::
 
-    python step6_api.py
+    python -m dashboard.step6_api
 
 then open http://127.0.0.1:5000
 """
 
+import time
 from datetime import date
 from pathlib import Path
 
 from flask import Flask, jsonify, request
 
-import check_ollama
+from automation import check_ollama
 import config
-import step3_storage as storage
-import user_profile
-from schemas import Email, Urgency
-from step1_email_agent import rewrite_reply
-from step2_gmail_reader import fetch_body
-from step4_pipeline import process_new_emails
-from step5_drafts import save_draft
+from automation import step3_storage as storage
+from agent import user_profile
+from agent.schemas import Email, Urgency
+from agent.step1_email_agent import rewrite_reply
+from automation.step2_gmail_reader import fetch_body, unread_count
+from automation.step4_pipeline import process_new_emails
+from automation.step5_drafts import save_draft
 
 app = Flask(__name__, static_folder=str(Path(__file__).parent / "static"), static_url_path="")
 
@@ -47,6 +48,20 @@ def get_config():
         name=user_profile.signature_name(),
         model=found.model if found else config.ollama_model(),
     )
+
+
+_unread = {"at": 0.0, "count": None}
+
+
+@app.get("/api/unread")
+def unread():
+    """Total unread emails in the Gmail inbox, cached for a minute (``?fresh=1`` skips the cache)."""
+    if request.args.get("fresh") or time.time() - _unread["at"] > 60:
+        try:
+            _unread.update(at=time.time(), count=unread_count())
+        except Exception as exc:
+            return jsonify(error=str(exc), unread=_unread["count"]), 503
+    return jsonify(unread=_unread["count"])
 
 
 @app.get("/api/emails")
@@ -94,14 +109,17 @@ def fetch_new():
 
 @app.post("/api/rewrite")
 def rewrite_draft():
-    """Rewrite a draft according to an instruction; nothing is saved until you press save.
+    """Rewrite a draft according to an instruction, or write one if there is none yet.
+
+    Nothing is saved until you press save. With an empty ``reply`` the instruction is
+    optional ("Write a draft" for an email the agent decided needed no reply).
 
     Body: ``{"message_id": "...", "reply": "<current draft>", "instruction": "say I don't have a Mac"}``.
     Responds with ``{"reply": "<new draft>"}``.
     """
     data = request.get_json(silent=True) or {}
     instruction = str(data.get("instruction", "")).strip()[:500]
-    if not instruction:
+    if not instruction and str(data.get("reply", "")).strip():
         return jsonify(error="Type what should change first."), 400
     row = storage.get_email(data.get("message_id", ""))
     if row is None:
@@ -111,7 +129,10 @@ def rewrite_draft():
     try:
         body = fetch_body(row["message_id"]) or row["summary"]  # summary if the email was deleted
         email = Email(sender=row["sender"], subject=row["subject"], body=body)
-        reply = rewrite_reply(email, str(data.get("reply", "")).strip(), instruction)
+        reply = rewrite_reply(
+            email, str(data.get("reply", "")).strip(), instruction,
+            sender_is_person=bool(row["sender_is_person"]), reply_name=row["reply_name"],
+        )
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     except Exception as exc:

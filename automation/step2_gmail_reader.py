@@ -6,7 +6,7 @@ or deleted.
 
 Run directly to print your latest unread emails::
 
-    python step2_gmail_reader.py
+    python -m automation.step2_gmail_reader
 """
 
 import email
@@ -18,7 +18,7 @@ from email.message import Message
 from email.utils import parsedate_to_datetime
 
 import config
-from schemas import Email
+from agent.schemas import Email
 
 
 def _decode(value: str | None) -> str:
@@ -144,6 +144,16 @@ def fetch_emails(
     return emails
 
 
+def unread_count() -> int:
+    """How many unread emails the Gmail inbox holds in total (read-only, one cheap IMAP STATUS call)."""
+    address, password = config.require_email_credentials()
+    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+        imap.login(address, password)
+        _, data = imap.status("INBOX", "(UNSEEN)")
+    match = re.search(rb"UNSEEN (\d+)", data[0])
+    return int(match.group(1)) if match else 0
+
+
 def fetch_body(message_id: str) -> str | None:
     """Read one email's text from Gmail by its Message-ID (bodies are not stored locally).
 
@@ -159,6 +169,34 @@ def fetch_body(message_id: str) -> str | None:
             return None
         _, parts = imap.fetch(nums[-1], "(BODY.PEEK[])")
         return _extract_body(email.message_from_bytes(parts[0][1]))
+
+
+SENT_FOLDER = '"[Gmail]/Sent Mail"'
+
+
+def find_sent_reply(subject: str, days: int = 30) -> str | None:
+    """Return the date (ISO UTC) of the newest message in Sent Mail about ``subject``, or None.
+
+    Read-only. ``Re:`` / ``Fwd:`` prefixes are ignored so a reply matches the original.
+    (The folder name is for English-language Gmail.)
+
+    Raises:
+        ValueError: If the subject has characters the IMAP search cannot handle.
+    """
+    core = re.sub(r"^(\s*(re|fwd?|aw)\s*:\s*)+", "", subject, flags=re.IGNORECASE).strip()
+    core = core.replace('"', "").replace("\\", "")[:80]
+    if not core or not core.isascii():
+        raise ValueError("this subject cannot be searched")
+    address, password = config.require_email_credentials()
+    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+        imap.login(address, password)
+        imap.select(SENT_FOLDER, readonly=True)
+        _, data = imap.search(None, "SINCE", _imap_date(date.today() - timedelta(days=days)), "SUBJECT", f'"{core}"')
+        nums = data[0].split()
+        if not nums:
+            return None
+        _, parts = imap.fetch(nums[-1], "(BODY.PEEK[HEADER.FIELDS (DATE)])")
+        return _received_at(email.message_from_bytes(parts[0][1]))
 
 
 def fetch_received_dates(message_ids: list[str]) -> dict[str, str]:

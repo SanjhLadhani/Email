@@ -7,4 +7,3 @@ token.json
 *.log
 triage.backup*.db
 profile.json
-api_usage.json

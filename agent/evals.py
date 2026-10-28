@@ -3,8 +3,8 @@
 Run it after changing the prompt, the profile or the model, so you can see
 whether quality went up or down instead of guessing::
 
-    python evals.py            # run every case
-    python evals.py --limit 5  # just the first five
+    python -m agent.evals            # run every case
+    python -m agent.evals --limit 5  # just the first five
 
 Add your own cases to ``evals/cases.json`` (real emails you have labelled are
 the most valuable). Each case has ``sender``, ``subject``, ``body`` and any of:
@@ -27,9 +27,9 @@ import json
 import re
 from pathlib import Path
 
-import user_profile
-from schemas import Email
-from step1_email_agent import analyze_email
+from agent import user_profile
+from agent.schemas import Email
+from agent.step1_email_agent import analyze_email
 
 CASES_PATH = Path(__file__).parent / "evals" / "cases.json"
 

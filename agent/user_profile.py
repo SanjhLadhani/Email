@@ -16,7 +16,7 @@ Keys:
 import json
 from pathlib import Path
 
-import tasks
+from agent import tasks
 
 PROFILE_PATH = Path(__file__).parent / "profile.json"
 

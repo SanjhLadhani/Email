@@ -5,13 +5,14 @@ analyzes the same email twice, and tracks a review ``status`` for the
 dashboard (``new`` -> ``approved`` / ``dismissed`` -> ``drafted``).
 """
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from email.utils import parseaddr
 from typing import Iterator
 
 import config
-from schemas import Email, EmailAnalysis
+from agent.schemas import Email, EmailAnalysis
 
 URGENCY_ORDER = "CASE urgency WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END"
 
@@ -50,8 +51,15 @@ def _connect() -> Iterator[sqlite3.Connection]:
     try:
         conn.executescript(SCHEMA)
         columns = {row[1] for row in conn.execute("PRAGMA table_info(emails)")}
-        if "received_at" not in columns:  # databases created before dates were stored
-            conn.execute("ALTER TABLE emails ADD COLUMN received_at TEXT")
+        # Databases created before these columns existed are upgraded in place.
+        for column, definition in (
+            ("received_at", "TEXT"),
+            ("sender_is_person", "INTEGER NOT NULL DEFAULT 1"),
+            ("reply_name", "TEXT NOT NULL DEFAULT ''"),
+            ("agent_steps", "TEXT NOT NULL DEFAULT '[]'"),
+        ):
+            if column not in columns:
+                conn.execute(f"ALTER TABLE emails ADD COLUMN {column} {definition}")
         yield conn
         conn.commit()
     finally:
@@ -83,8 +91,9 @@ def save_result(email: Email, analysis: EmailAnalysis) -> None:
         conn.execute(
             """INSERT OR REPLACE INTO emails
                (message_id, sender, subject, category, urgency, summary,
-                reason, requires_action, suggested_reply, received_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                reason, requires_action, suggested_reply, received_at,
+                sender_is_person, reply_name, agent_steps)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 email.message_id,
                 email.sender,
@@ -96,6 +105,9 @@ def save_result(email: Email, analysis: EmailAnalysis) -> None:
                 int(analysis.requires_action),
                 analysis.suggested_reply,
                 email.received_at,
+                int(analysis.sender_is_person),
+                analysis.reply_name,
+                json.dumps(analysis.steps),
             ),
         )
 
@@ -196,6 +208,38 @@ def feedback_examples(sender: str, kind: str, limit: int) -> list[sqlite3.Row]:
             "SELECT * FROM feedback WHERE kind = ? "
             "ORDER BY (lower(sender) LIKE ?) DESC, id DESC LIMIT ?",
             (kind, pattern, limit),
+        ).fetchall()
+
+
+def sender_history(sender: str, exclude_id: str | None, limit: int = 5) -> list[sqlite3.Row]:
+    """Earlier stored emails from the same address, then the same domain, newest first.
+
+    Args:
+        sender: The ``From`` header of the email being analyzed.
+        exclude_id: Its Message-ID, so it is not listed as its own history.
+        limit: Maximum number of rows.
+    """
+    address = parseaddr(sender)[1].lower()
+    domain = address.rsplit("@", 1)[-1]
+    if not address:
+        return []
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM emails WHERE lower(sender) LIKE ? AND message_id != ? "
+            "ORDER BY (lower(sender) LIKE ?) DESC, COALESCE(received_at, processed_at) DESC LIMIT ?",
+            (f"%@{domain}%", exclude_id or "", f"%{address}%", limit),
+        ).fetchall()
+
+
+def search_emails(query: str, exclude_id: str | None, limit: int = 5) -> list[sqlite3.Row]:
+    """Stored emails whose subject, sender or summary contains ``query``, newest first."""
+    like = f"%{query.lower()}%"
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM emails WHERE message_id != ? AND "
+            "(lower(subject) LIKE ? OR lower(sender) LIKE ? OR lower(summary) LIKE ?) "
+            "ORDER BY COALESCE(received_at, processed_at) DESC LIMIT ?",
+            (exclude_id or "", like, like, like, limit),
         ).fetchall()
 
 

@@ -11,8 +11,8 @@ from email.message import EmailMessage
 from email.utils import formataddr, formatdate, parseaddr
 
 import config
-import user_profile
-from schemas import is_noreply
+from agent import user_profile
+from agent.schemas import is_noreply
 
 DRAFTS_FOLDER = "[Gmail]/Drafts"
 

@@ -13,10 +13,11 @@ It is personalized two ways:
 
 Run directly to try it on a few sample emails::
 
-    python step1_email_agent.py
+    python -m agent.step1_email_agent
 """
 
-from pydantic_ai import Agent, NativeOutput, PromptedOutput
+from pydantic_ai import Agent, NativeOutput
+from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -24,12 +25,13 @@ from pydantic_ai.providers.openai import OpenAIProvider
 import re
 from email.utils import parseaddr
 
+from agent import agent_tools
 import config
-import schemas
-import tasks
-import user_profile
-import step3_storage as storage
-from schemas import Email, EmailAnalysis, EmailCategory, RewrittenReply, Urgency, is_noreply  # noqa: F401 (re-exported)
+from agent import schemas
+from agent import tasks
+from agent import user_profile
+from automation import step3_storage as storage
+from agent.schemas import Email, EmailAnalysis, EmailCategory, RewrittenReply, Urgency, is_noreply  # noqa: F401 (re-exported)
 
 def personal_profile() -> str:
     """Add the user's ``profile.json`` to the instructions, re-read per run."""
@@ -54,7 +56,7 @@ def get_agent(task: str = "analyze") -> Agent:
     found = config.backend()
     if found is None:
         raise RuntimeError(config.NO_MODEL_MESSAGE)
-    key = (task, found.kind, found.base_url, found.model, found.api_key)
+    key = (task, found.kind, found.base_url, found.models or found.model, found.api_key)
     if key not in _agents:
         schema, instructions = (
             (EmailAnalysis, [tasks.agent_instructions, personal_profile])
@@ -68,23 +70,22 @@ def get_agent(task: str = "analyze") -> Agent:
             output = NativeOutput(schema)
         else:
             provider = OpenAIProvider(base_url=found.base_url, api_key=found.api_key)
-            # Works on any hosted model, whether or not it supports strict JSON schemas.
-            output = PromptedOutput(schema)
+            # Hosted models answer through a tool call. (JSON-mode output cannot be combined
+            # with the agent's look-up tools on Gemini: it rejects that request with HTTP 400.)
+            output = schema
+        models = [OpenAIChatModel(name, provider=provider) for name in (found.models or (found.model,))]
+        # With several models, a failure such as an exhausted free quota (HTTP 429) moves on to the next.
+        model = FallbackModel(*models) if len(models) > 1 else models[0]
+        # Only the triage agent has tools; it decides for itself when to use them.
+        extra = {"deps_type": agent_tools.TriageContext, "tools": agent_tools.TOOLS} if task == "analyze" else {}
         _agents[key] = Agent(
-            OpenAIChatModel(found.model, provider=provider),
+            model,
             output_type=output,
             instructions=instructions,
             retries=3,
+            **extra,
         )
     return _agents[key]
-
-
-def _run(task: str, prompt: str):
-    """Run the agent for ``task`` once, counting it when a hosted API is in use."""
-    found = config.backend()
-    if found is not None and found.kind == "api":
-        config.count_api_call()
-    return get_agent(task).run_sync(prompt).output
 
 
 def feedback_block(sender: str) -> str:
@@ -150,7 +151,8 @@ def clean_body(body: str, my_name: str, their_name: str) -> str:
         body = _MY_NAME.sub(my_name, body)
     if their_name:
         body = _THEIR_NAME.sub(their_name, body)
-    return body.strip()
+    body = body.strip()
+    return body[:1].upper() + body[1:]
 
 
 def compose_reply(body: str, sender: str, name: str | None = None) -> str:
@@ -184,7 +186,8 @@ def analyze_email(email: Email, use_feedback: bool = True) -> EmailAnalysis:
     Args:
         email: The email to analyze.
         use_feedback: Include the user's past corrections as reference
-            examples. Turn off for repeatable evaluations.
+            examples and let the agent use its look-up tools. Turn off for
+            repeatable evaluations that depend on the email alone.
 
     Returns:
         A validated ``EmailAnalysis``. Pydantic AI retries the model if its
@@ -193,27 +196,44 @@ def analyze_email(email: Email, use_feedback: bool = True) -> EmailAnalysis:
     prompt = email.to_prompt()
     if use_feedback:
         prompt = feedback_block(email.sender) + prompt
-    result = _run("analyze", prompt)
+    # The agent loops on its own: it may call tools (see agent_tools.py) before it answers.
+    run = get_agent("analyze").run_sync(
+        prompt,
+        deps=agent_tools.TriageContext(email=email, allow_lookups=use_feedback),
+        usage_limits=agent_tools.LIMITS,
+    )
+    result = run.output
+    result._steps = agent_tools.describe_steps(run.all_messages())
     # Hard rule, not left to the model: never draft a reply to a no-reply address.
     if is_noreply(email.sender):
         result.suggested_reply = ""
     else:
         # The model judged whether a real person wrote this; if not, nobody is waiting for a reply.
         result.suggested_reply = (
-            compose_reply(result.suggested_reply, email.sender, result.reply_name)
+            compose_reply(result.suggested_reply, email.sender, result.reply_name or None)
             if result.sender_is_person
             else ""
         )
     return result
 
 
-def rewrite_reply(email: Email, current_reply: str, instruction: str) -> str:
+def rewrite_reply(
+    email: Email,
+    current_reply: str,
+    instruction: str,
+    sender_is_person: bool | None = None,
+    reply_name: str | None = None,
+) -> str:
     """Rewrite a draft reply according to what the user asked for.
 
     Args:
         email: The email being answered (its body gives the model the context).
         current_reply: The draft as it is now (greeting and sign-off included).
         instruction: What to change, in the user's words, e.g. "say I don't have a Mac".
+            May be empty when ``current_reply`` is empty: a new reply is then written.
+        sender_is_person, reply_name: What the original analysis judged about the
+            sender. Used for the greeting when there is no draft yet, because the
+            analysis saw the whole email; None lets the rewrite model judge.
 
     Returns:
         The new full reply, with greeting and sign-off.
@@ -226,9 +246,18 @@ def rewrite_reply(email: Email, current_reply: str, instruction: str) -> str:
     prompt = tasks.rewrite_prompt(
         email.sender, email.subject, email.body[: schemas.MAX_BODY_CHARS], current_reply, instruction
     )
-    # Keep whoever the current draft already greets ("Hello," stays "Hello,").
+    result = get_agent("rewrite").run_sync(prompt).output
+    # Keep whoever the current draft already greets ("Hello," stays "Hello,"); with no
+    # draft yet, greet whoever the model judged the sender to be.
     greeted = re.match(r"\s*(?:hi|hello|hey|dear)\s+([^,\n]+),", current_reply, re.IGNORECASE)
-    reply = compose_reply(_run("rewrite", prompt).reply, email.sender, greeted.group(1) if greeted else "")
+    if current_reply.strip():
+        name = greeted.group(1) if greeted else ""
+    else:
+        # A person with no extracted name is greeted by their display name; an institution gets "Hello,".
+        person = result.sender_is_person if sender_is_person is None else sender_is_person
+        given = result.reply_name if reply_name is None else reply_name
+        name = given or (None if person else "")
+    reply = compose_reply(result.reply, email.sender, name)
     if not reply:
         raise ValueError("The model returned an empty reply. Try rewording the instruction.")
     return reply

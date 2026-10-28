@@ -1021,6 +1021,18 @@
     }
     .compose textarea:focus { outline: 2px solid var(--accent); outline-offset: -2px; transform: none; }
     .compose.saved textarea { color: var(--text-2); }
+    .batch-bar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      margin: 0 0 12px; padding: 10px 14px;
+      border: 1.5px solid var(--accent); border-radius: var(--radius-sm);
+      background: var(--surface-2); font-size: 0.86rem; color: var(--text-2);
+    }
+    .batch-bar[hidden] { display: none; }
+    .batch-bar b { color: var(--text); }
+    .steps { margin: 10px 0 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+    .steps-title { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); margin-bottom: 6px; }
+    .steps ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 0.8rem; color: var(--text-2); }
+    .steps li b { display: block; font-weight: 600; color: var(--text); }
     .rewrite { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--border); }
     .rewrite input {
       flex: 1; min-width: 0; font: inherit; font-size: 0.84rem; color: var(--text);
@@ -1047,6 +1059,8 @@
       font-size: 0.76rem; font-weight: 600; color: var(--text-2);
       white-space: nowrap;
     }
+    .unread-pill i { background: var(--accent) !important; }
+    .unread-pill b { color: var(--text); }
     .model-pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
     .model-pill[data-state="online"] i { background: var(--low); }
     .model-pill[data-state="offline"] i { background: var(--critical); }
@@ -1087,6 +1101,7 @@
   </div>
   <div class="fetch-area">
     <span class="model-pill" id="modelPill" data-state="checking"><i></i><b>Checking model…</b></span>
+    <span class="model-pill unread-pill" id="unreadPill" title="Unread emails in your Gmail inbox"><i></i><b>…</b> unread</span>
     <div class="select-wrap">
       <select id="when" aria-label="Which emails to fetch">
         <option value="newest">Newest</option>
@@ -1134,9 +1149,16 @@
         <input type="date" id="dateTo" aria-label="To date">
       </span>
     </div>
+    <div class="select-wrap">
+      <select id="sort" aria-label="Sort order">
+        <option value="urgency">Most urgent first</option>
+        <option value="newest">Newest first</option>
+      </select>
+    </div>
     <label class="check"><input type="checkbox" id="onlyAction"> Needs action</label>
   </section>
 
+  <div id="batchBar" class="batch-bar" hidden></div>
   <section id="list" class="list" aria-live="polite"></section>
 </main>
 
@@ -1148,7 +1170,7 @@
    ================================================================== */
 
 const URGENCIES = ["critical", "high", "medium", "low"];
-const VIEWS = { new: "Inbox", drafted: "Drafted", dismissed: "Dismissed", all: "All" };
+const VIEWS = { new: "Inbox", drafted: "Drafted", dismissed: "Dismissed" };  // dismissed and drafted mail shows only in its own tab
 
 const state = {
   emails: [],
@@ -1160,6 +1182,8 @@ const state = {
   datePreset: "any",
   dateFrom: "",
   dateTo: "",
+  batch: null,  // Set of message ids from the last fetch, or null for everything
+  sort: "urgency",
   open: new Set(),
   drafts: {},
   mailbox: "",
@@ -1257,7 +1281,8 @@ function inDateRange(e) {
 
 function visibleEmails() {
   const q = state.search.toLowerCase();
-  return state.emails.filter((e) => {
+  const matches = state.emails.filter((e) => {
+    if (state.batch && !state.batch.has(e.message_id)) return false;
     if (state.view !== "all" && e.status !== state.view) return false;
     if (state.urgency && e.urgency !== state.urgency) return false;
     if (state.category !== "all" && e.category !== state.category) return false;
@@ -1266,11 +1291,17 @@ function visibleEmails() {
     if (!q) return true;
     return [e.sender, e.subject, e.summary, e.category, e.reason].some((t) => (t || "").toLowerCase().includes(q));
   });
+  if (state.sort === "newest") {
+    const time = (e) => emailDate(e)?.getTime() ?? 0;
+    matches.sort((a, b) => time(b) - time(a));
+  }
+  return matches;
 }
 
 function renderStats() {
   const inView = state.emails.filter(
-    (e) => (state.view === "all" || e.status === state.view) && inDateRange(e) &&
+    (e) => (!state.batch || state.batch.has(e.message_id)) &&
+      (state.view === "all" || e.status === state.view) && inDateRange(e) &&
       (state.category === "all" || e.category === state.category)
   );
   const statsEl = $("stats");
@@ -1346,6 +1377,17 @@ function timeAgo(d) {
 }
 
 /** Show whether the Colab model is reachable. */
+/** The total unread count in Gmail, for the header. */
+async function pollUnread(fresh = false) {
+  const pill = $("unreadPill");
+  try {
+    const r = await api(`/api/unread${fresh ? "?fresh=1" : ""}`);
+    pill.querySelector("b").textContent = r.unread == null ? "?" : r.unread.toLocaleString();
+  } catch {
+    pill.querySelector("b").textContent = "?";
+  }
+}
+
 async function pollStatus() {
   const pill = $("modelPill");
   try {
@@ -1357,6 +1399,16 @@ async function pollStatus() {
     pill.dataset.state = "offline";
     pill.querySelector("b").textContent = "Dashboard offline";
   }
+}
+
+/** "What the agent checked": the look-ups it chose to make before deciding. */
+function renderSteps(e) {
+  let steps = [];
+  try { steps = JSON.parse(e.agent_steps || "[]"); } catch { steps = []; }
+  if (!steps.length) return "";
+  return `<div class="steps"><div class="steps-title">What the agent checked</div><ol>${steps
+    .map((s) => `<li>${esc(s.label)}<b>${esc(s.result)}</b></li>`)
+    .join("")}</ol></div>`;
 }
 
 function renderCard(e) {
@@ -1386,6 +1438,7 @@ function renderCard(e) {
     <div class="card-body">
       <p>${esc(e.summary)}</p>
       <p class="why"><strong>Why ${esc(e.urgency)}:</strong> ${esc(e.reason)}</p>
+      ${renderSteps(e)}
       ${noreply
         ? '<div class="compose none">No reply needed. This is an automated address that cannot receive replies.</div>'
         : `<div class="compose${drafted ? " saved" : ""}">
@@ -1395,10 +1448,10 @@ function renderCard(e) {
         <div class="compose-row"><span>From</span><b>${from}</b></div>
         <div class="compose-row"><span>To</span><b>${esc(to)}</b></div>
         <div class="compose-row"><span>Subject</span><b>${esc(subj)}</b></div>
-        <textarea data-reply placeholder="No reply suggested - write one here if you want to answer" aria-label="Draft reply"${drafted ? " readonly" : ""}>${esc(reply)}</textarea>
+        <textarea data-reply placeholder="The AI saw no need to reply. Press Write a draft if you want one, or type your own here." aria-label="Draft reply"${drafted ? " readonly" : ""}>${esc(reply)}</textarea>
         ${drafted ? "" : `<div class="rewrite">
-          <input data-instruction maxlength="500" placeholder="Tell the AI what to change, e.g. say I don't have a Mac" aria-label="Instruction for rewriting the draft">
-          <button data-action="rewrite">Rewrite</button>
+          <input data-instruction maxlength="500" placeholder="${reply.trim() ? "Tell the AI what to change, e.g. say I don't have a Mac" : "Optional: tell the AI what to say, or just press Write a draft"}" aria-label="Instruction for writing or rewriting the draft">
+          <button data-action="rewrite" data-rewrite-btn class="${reply.trim() ? "" : "primary"}">${reply.trim() ? "Rewrite" : "Write a draft"}</button>
           <button data-action="restore" title="Bring back the first draft the AI wrote"${reply === (e.suggested_reply ?? "") ? " hidden" : ""}>Original</button>
         </div>`}
         <div class="compose-foot">Goes to your Gmail Drafts only. Nothing is sent automatically.</div>
@@ -1439,11 +1492,12 @@ function activeFilters() {
   if (state.onlyAction) f.push("needs action");
   if (state.search) f.push(`search "${state.search}"`);
   if (state.datePreset !== "any") f.push("date range");
+  if (state.batch) f.push("last fetch only");
   return f;
 }
 
 function clearFilters() {
-  Object.assign(state, { urgency: null, category: "all", onlyAction: false, search: "", datePreset: "any", dateFrom: "", dateTo: "" });
+  Object.assign(state, { urgency: null, category: "all", onlyAction: false, search: "", datePreset: "any", dateFrom: "", dateTo: "", batch: null });
   $("search").value = "";
   $("onlyAction").checked = false;
   $("datePreset").value = "any";
@@ -1466,10 +1520,21 @@ function renderList() {
     : '<div class="empty">No emails here. Try "Fetch &amp; analyze new emails".</div>';
 }
 
+/** The "showing your last fetch" bar, with a way back to everything. */
+function renderBatch() {
+  const bar = $("batchBar");
+  bar.hidden = !state.batch;
+  if (!state.batch) return;
+  const n = state.emails.filter((e) => state.batch.has(e.message_id) && e.status === "new").length;
+  bar.innerHTML = `<span>Showing the <b>${n}</b> email${n === 1 ? "" : "s"} from your last fetch, newest first.</span>
+    <button data-show-all>Show the whole inbox</button>`;
+}
+
 function render() {
   renderCategories();
   renderStats();
   renderViews();
+  renderBatch();
   renderList();
 }
 
@@ -1543,7 +1608,16 @@ $("fetch").addEventListener("click", (ev) =>
       ...range.body,
     });
     if (range.body.since) showDays(range.body.since, range.body.until);
+    if (r.message_ids?.length) {
+      // Show just what this fetch looked at, newest first, so new mail is not lost among old mail.
+      state.batch = new Set(r.message_ids);
+      state.view = "new";  // dismissed and drafted emails stay out of the overall list
+      state.urgency = null;
+      state.sort = "newest";
+      $("sort").value = "newest";
+    }
     await load();
+    pollUnread(true);
     toast(
       `Checked ${r.checked} · ${r.new} new` +
         (r.already ? ` · ${r.already} already analyzed` : "") +
@@ -1575,6 +1649,13 @@ $("datePreset").addEventListener("change", (ev) => {
 $("dateFrom").addEventListener("change", (ev) => { state.dateFrom = ev.target.value; render(); });
 $("dateTo").addEventListener("change", (ev) => { state.dateTo = ev.target.value; render(); });
 $("onlyAction").addEventListener("change", (ev) => { state.onlyAction = ev.target.checked; renderList(); });
+$("sort").addEventListener("change", (ev) => { state.sort = ev.target.value; renderList(); });
+$("batchBar").addEventListener("click", (ev) => {
+  if (!ev.target.closest("[data-show-all]")) return;
+  state.batch = null;
+  state.view = "new";
+  render();
+});
 
 $("list").addEventListener("input", (ev) => {
   if (!ev.target.matches("[data-reply]")) return;
@@ -1583,6 +1664,7 @@ $("list").addEventListener("input", (ev) => {
   const save = card.querySelector('[data-action="draft"]');
   if (save) save.disabled = !ev.target.value.trim();
   syncOriginal(card);
+  syncRewriteLabel(card);
 });
 
 $("list").addEventListener("keydown", (ev) => {
@@ -1591,6 +1673,18 @@ $("list").addEventListener("keydown", (ev) => {
     ev.target.closest(".card").querySelector('[data-action="rewrite"]').click();
   }
 });
+
+/** "Write a draft" while the box is empty, "Rewrite" once it has text. */
+function syncRewriteLabel(card) {
+  const button = card.querySelector("[data-rewrite-btn]");
+  if (!button) return;
+  const hasDraft = !!card.querySelector("[data-reply]").value.trim();
+  button.textContent = hasDraft ? "Rewrite" : "Write a draft";
+  button.classList.toggle("primary", !hasDraft);
+  card.querySelector("[data-instruction]").placeholder = hasDraft
+    ? "Tell the AI what to change, e.g. say I don't have a Mac"
+    : "Optional: tell the AI what to say, or just press Write a draft";
+}
 
 /** The first draft the AI wrote for this card (kept untouched until you save). */
 function originalReply(card) {
@@ -1636,14 +1730,15 @@ $("list").addEventListener("click", (ev) => {
   run(button, async () => {
     if (action === "rewrite" || action === "restore") {
       const box = card.querySelector("[data-reply]");
+      box.dataset.hadDraft = box.value.trim() ? "1" : "0";
       if (action === "rewrite") {
         const field = card.querySelector("[data-instruction]");
         const instruction = field.value.trim();
-        if (!instruction) throw new Error("Type what should change first.");
+        if (!instruction && box.value.trim()) throw new Error("Type what should change first.");
         const r = await api("/api/rewrite", { message_id: id, reply: box.value, instruction });
         box.value = r.reply;
         field.value = "";
-        toast("Draft updated. Press Original to go back to the first one.", false, "✍");
+        toast(box.dataset.hadDraft === "0" ? "Draft written" : "Draft updated. Press Original to go back to the first one.", false, "✍");
       } else {
         box.value = originalReply(card);
         toast("Original draft restored", false, "↩");
@@ -1652,6 +1747,7 @@ $("list").addEventListener("click", (ev) => {
       const save = card.querySelector('[data-action="draft"]');
       if (save) save.disabled = !box.value.trim();
       syncOriginal(card);
+      setTimeout(() => syncRewriteLabel(card), 0);  // after run() puts the button's old label back
       return;
     }
     if (action === "draft") {
@@ -1674,6 +1770,8 @@ $("list").addEventListener("click", (ev) => {
     const cfg = await api("/api/config");
     pollStatus();
     setInterval(pollStatus, 20000);
+    pollUnread();
+    setInterval(pollUnread, 60000);
     // Pick up emails that autopilot analysed in the background, but never while
     // something is open or being typed into (that would wipe an unsaved draft).
     setInterval(() => {

@@ -6,9 +6,9 @@ It puts one small launcher in your Startup folder. The launcher runs
 
 Run::
 
-    python install_autostart.py            # turn automatic start on (and start it now)
-    python install_autostart.py --remove   # turn it off again
-    python install_autostart.py --status   # is it installed / running?
+    python -m automation.install_autostart            # turn automatic start on (and start it now)
+    python -m automation.install_autostart --remove   # turn it off again
+    python -m automation.install_autostart --status   # is it installed / running?
 
 You still have to run the Colab notebook yourself - Colab needs your Google
 sign-in. Until then the dashboard shows "Model offline" and autopilot waits.
@@ -21,7 +21,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-PROJECT = Path(__file__).parent.resolve()
+PROJECT = Path(__file__).resolve().parent.parent  # the project root, where .env and the database live
 STARTUP = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 LAUNCHER = STARTUP / "EmailTriageAutopilot.vbs"
 DASHBOARD = "http://127.0.0.1:5000/api/status"
@@ -30,7 +30,7 @@ DASHBOARD = "http://127.0.0.1:5000/api/status"
 def launcher_script() -> str:
     """Build the VBScript that starts autopilot hidden, logging to autopilot.log."""
     python = PROJECT / ".venv" / "Scripts" / "python.exe"
-    command = f'cmd /c ""{python}" -u autopilot.py > autopilot.log 2>&1"'
+    command = f'cmd /c ""{python}" -u -m automation.autopilot > autopilot.log 2>&1"'
     escaped = command.replace('"', '""')  # VBScript escapes a quote by doubling it
     return (
         'Set shell = CreateObject("WScript.Shell")\n'
