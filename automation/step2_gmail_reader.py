@@ -1,8 +1,9 @@
-"""Step 2 - Read emails from Gmail over IMAP (read-only).
+"""Step 2 - Read emails from Gmail over IMAP.
 
-Uses a Gmail app password (see ``.env``). The mailbox is opened read-only and
-messages are fetched with ``BODY.PEEK``, so nothing is marked as read, moved
-or deleted.
+Uses a Gmail app password (see ``.env``). Reading is read-only: the mailbox is opened
+read-only and messages are fetched with ``BODY.PEEK``, so reading never marks anything
+as read, moved or deleted. The single exception is ``set_seen``, which flips the read
+flag of one email when you press Dismiss (or Restore) in the dashboard.
 
 Run directly to print your latest unread emails::
 
@@ -144,14 +145,86 @@ def fetch_emails(
     return emails
 
 
-def unread_count() -> int:
-    """How many unread emails the Gmail inbox holds in total (read-only, one cheap IMAP STATUS call)."""
+PRIMARY = ["X-GM-RAW", '"category:primary"']  # Gmail's own search: the Primary tab
+
+
+def unread_counts() -> dict:
+    """Unread totals, read-only: ``{"all": ..., "primary": ...}``.
+
+    ``all`` is the number of unread *messages* in the whole inbox (every tab). ``primary`` is the
+    number of unread *conversations* in the Primary tab, which is what Gmail shows beside "Inbox"
+    in its sidebar when tabs are on.
+    """
     address, password = config.require_email_credentials()
     with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
         imap.login(address, password)
         _, data = imap.status("INBOX", "(UNSEEN)")
-    match = re.search(rb"UNSEEN (\d+)", data[0])
-    return int(match.group(1)) if match else 0
+        match = re.search(rb"UNSEEN (\d+)", data[0])
+        imap.select("INBOX", readonly=True)
+        nums = imap.search(None, "UNSEEN", *PRIMARY)[1][0].split()
+        conversations = set()
+        for start in range(0, len(nums), 400):
+            _, rows = imap.fetch(b",".join(nums[start:start + 400]), "(X-GM-THRID)")
+            for row in rows:
+                found = re.search(rb"X-GM-THRID (\d+)", row if isinstance(row, bytes) else row[0])
+                if found:
+                    conversations.add(found.group(1))
+    return {"all": int(match.group(1)) if match else 0, "primary": len(conversations)}
+
+
+def count_unread_among(message_ids: list[str], primary_only: bool = False) -> int:
+    """How many of these emails (by Message-ID) are still unread in the inbox.
+
+    Read-only. Ids are searched 20 at a time with one IMAP ``OR`` search each, so a few
+    hundred emails take a handful of calls. With ``primary_only`` only emails in the
+    Primary tab count.
+    """
+    ids = [i for i in message_ids if i.isascii() and '"' not in i and "\\" not in i]
+    if not ids:
+        return 0
+    address, password = config.require_email_credentials()
+    total = 0
+    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+        imap.login(address, password)
+        imap.select("INBOX", readonly=True)
+        for start in range(0, len(ids), 20):
+            group = ids[start:start + 20]
+            criteria = ["UNSEEN"] + (PRIMARY if primary_only else [])
+            for position, message_id in enumerate(group):
+                if position < len(group) - 1:
+                    criteria.append("OR")  # OR a OR b c  ==  a or (b or c)
+                criteria += ["HEADER", "Message-ID", f'"{message_id}"']
+            _, data = imap.search(None, *criteria)
+            total += len(data[0].split())
+    return total
+
+
+def set_seen(message_id: str, seen: bool = True) -> dict | None:
+    """Mark one email read (or unread again) in Gmail. The only place MailMind changes your mailbox.
+
+    Called only when you press **Dismiss** (read) or **Restore** (unread) in the dashboard; the
+    agent and autopilot never call it. Nothing is moved or deleted.
+
+    Returns:
+        ``{"changed": bool, "primary": bool}`` (whether the flag actually changed, and whether the
+        email is in the Primary tab), or None if the email is not in the inbox.
+    """
+    if not message_id.isascii() or '"' in message_id or "\\" in message_id:
+        return None
+    address, password = config.require_email_credentials()
+    quoted = f'"{message_id}"'
+    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+        imap.login(address, password)
+        imap.select("INBOX")  # writable: the flag is changed below
+        nums = imap.search(None, "HEADER", "Message-ID", quoted)[1][0].split()
+        if not nums:
+            return None
+        unread_now = bool(imap.search(None, "UNSEEN", "HEADER", "Message-ID", quoted)[1][0].split())
+        in_primary = bool(imap.search(None, *PRIMARY, "HEADER", "Message-ID", quoted)[1][0].split())
+        changed = unread_now == seen  # marking read needs it unread; marking unread needs it read
+        if changed:
+            imap.store(nums[-1], "+FLAGS" if seen else "-FLAGS", "\\Seen")
+    return {"changed": changed, "primary": in_primary}
 
 
 def fetch_body(message_id: str) -> str | None:

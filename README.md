@@ -18,8 +18,10 @@ and save the final reply to your Gmail **Drafts**.
   and only when you press the button.
 - Its tools are **read-only look-ups.** None can send, delete, move or change anything, and each email's
   run is capped at 4 tool calls and 8 model requests.
-- It **never changes your mailbox.** Mail is opened read-only and fetched with `BODY.PEEK`, so nothing
-  is marked as read, moved or deleted.
+- It **barely touches your mailbox.** Mail is opened read-only and fetched with `BODY.PEEK`, so reading never
+  marks anything read, moves or deletes it. There are exactly two changes, both only when you ask: saving a
+  draft, and marking one email **read** when you press **Dismiss** (**unread** again if you press Restore). The
+  agent and autopilot never do either on their own, and nothing is ever moved or deleted.
 - **No model runs on your computer.** Analysis is done by a hosted API (Gemini / Groq / OpenRouter)
   or by an Ollama server on a Colab GPU. A localhost model address is refused on purpose.
 - **Email text is treated as untrusted data**, never as instructions to the agent.
@@ -365,7 +367,8 @@ Run `python -m agent.step1_email_agent` to analyze three built-in sample emails.
 
 *Folder: `automation/`*
 
-**Role:** reads Gmail over IMAP. Opened read-only with `BODY.PEEK`, so reading never marks mail as read.
+**Role:** reads Gmail over IMAP. Reading is read-only (`BODY.PEEK`), so it never marks mail as read. The one exception is
+`set_seen`, called when you press Dismiss or Restore.
 
 - `fetch_emails(limit, unread_only, since, until)`: returns the newest `limit` emails, newest first. With
   `since`/`until` (your local days, inclusive) it fetches that day range. Gmail's IMAP `SINCE`/`BEFORE`
@@ -379,8 +382,13 @@ Run `python -m agent.step1_email_agent` to analyze three built-in sample emails.
 - `fetch_body(message_id)`: reads one email's text on demand (used by Rewrite, because bodies are not
   stored). Returns `None` if it is no longer in the inbox.
 - `fetch_received_dates(ids)`: looks up the sent date of emails stored before dates were recorded.
-- `unread_count()`: the total number of unread emails in the inbox, from one cheap IMAP `STATUS` call (the
-  dashboard header's unread count).
+- `set_seen(message_id, seen)`: flips one email's read flag in Gmail (the only mailbox change besides drafts). Called by the
+  dashboard when you press **Dismiss** (marks it read) or **Restore** (marks it unread again); returns whether the flag
+  changed and whether the email is in the Primary tab. Never called by the agent or autopilot.
+- `unread_counts()`: unread totals: `all` (unread messages in the whole inbox) and `primary` (unread *conversations* in
+  the Primary tab, matching Gmail's sidebar), using Gmail's `X-GM-RAW` search and `X-GM-THRID`.
+- `count_unread_among(ids, primary_only)`: how many of the given emails (by Message-ID) are still unread, using
+  batched IMAP `OR` searches. The header count is the Primary unread count minus the ones you handled here.
 - `find_sent_reply(subject, days=30)`: searches `[Gmail]/Sent Mail` read-only for a message about a subject
   (`Re:` / `Fwd:` ignored); the agent's `did_i_already_reply` tool. Subjects with non-ASCII characters cannot be
   searched and report that instead.
@@ -398,7 +406,7 @@ dashboard has something to show. See [Database](#database) for the tables.
 - `save_result(email, analysis)`: insert or replace by Message-ID.
 - `is_processed(id)`, `get_email(id)`, `list_results(urgency, status)` (sorted critical to low, then
   newest by sent date).
-- `set_status(id, status)`: `new`, `dismissed` or `drafted`. The dashboard shows dismissed and drafted emails only in
+- `set_status(id, status)`: `new`, `dismissed`, `drafted` (a reply sits in Gmail Drafts) or `replied` (it was sent). The dashboard shows dismissed and drafted emails only in
   their own tabs, never in the Inbox or the last-fetch view. `update_reply(id, text)`: stores the final draft.
 - `record_urgency_feedback(id, urgency)`: updates the email and remembers your correction as a lesson.
   `record_reply_feedback(id, reply)`: remembers a reply you edited. `feedback_examples(sender, kind, n)`:
@@ -444,8 +452,8 @@ Run `python -m automation.step4_pipeline` for one pass.
 **Role:** the web server: JSON API plus the dashboard page. Flask, bound to `127.0.0.1` only, so nothing
 outside your computer can reach it. See [HTTP API](#http-api) for every endpoint. Notable behaviour:
 `/api/fetch` clamps `limit` to 1-50, validates dates, and returns HTTP 503 with a readable message if no
-model is available; `/api/unread` returns the Gmail unread total, cached for a minute; `/api/draft` saves the draft, records your edit as feedback, and marks the email
-`drafted`; `/api/rewrite` returns a new draft but saves nothing.
+model is available; `/api/unread` returns the Primary-tab unread count still to deal with, cached for a minute; `/api/draft` saves the draft, records your edit as feedback, and marks the email
+`drafted`; `/api/sync` checks Gmail for drafts you sent or deleted; `/api/rewrite` returns a new draft but saves nothing.
 
 Run `python -m dashboard.step6_api` for the dashboard alone (autopilot normally does this).
 
@@ -539,15 +547,19 @@ own labelled emails; those are the most valuable.
 **Role:** the whole dashboard in one file (HTML + CSS + JavaScript, no build step, no libraries).
 
 - **Header:** title, which model is answering (polled every 20 s: `online · API/Colab`, or red *Model
-  offline*), the **total unread count in your Gmail inbox** (refreshed every minute and after a fetch), and
+  offline*), the **unread counts still to deal with**: the **Primary** tab (the number Gmail shows beside Inbox) and **all tabs**
+  together. Dismissing an email marks it read in Gmail, so it drops out of Gmail's own count; a drafted email
+  stays unread there, so it is subtracted. They refresh every minute, after a fetch, and whenever you dismiss, restore or draft (an email
+  from another tab lowers the all-tabs number, a Primary one lowers both). And
   the fetch controls: which day(s) (Newest, Today, Yesterday, Last 3 days, Pick a date),
   how many (5-50), *Unread only*, and **Fetch & analyze**. After a fetch the list shows just the emails
   that fetch looked at, newest first, with a **Show the whole inbox** button (and, for a day fetch, the date
   filter jumps to those days).
 - **Stats:** counts per urgency with a share bar; click one to filter. Urgency colours are flat red /
   yellow / green; shading appears only on hover.
-- **Toolbar:** view tabs (Inbox, Drafted, Dismissed: dismissed and drafted emails appear **only** in their own
-  tab, never in the Inbox or the last-fetch view), a **Most urgent / Newest first** sort, search (subject, sender, summary, category,
+- **Toolbar:** view tabs (Inbox, Drafted, Replied, Dismissed: drafted, replied and dismissed emails appear **only** in
+  their own tab, never in the Inbox or the last-fetch view; a draft you send from Gmail moves from Drafted to Replied by
+  itself), a **Most urgent / Newest first** sort, search (subject, sender, summary, category,
   reason), category dropdown with counts (so "work" lists all job-related mail), date filter (any time,
   today, 7 / 30 days, custom range) and *Needs action*.
 - **Cards:** urgency badge, subject, sender, relative time, category and *action needed* tags. Opening a
@@ -609,7 +621,8 @@ All endpoints are on `http://127.0.0.1:5000`, JSON in and out.
 | `GET /api/config` | `{email, name, model}` for the header and Gmail links |
 | `GET /api/status` | `{online, model, via}`: is a model reachable, and is it `api` or `colab` |
 | `GET /api/emails` | Every stored analysis, most urgent first |
-| `GET /api/unread` | `{unread}`: total unread emails in the Gmail inbox (cached 60 s; `?fresh=1` skips the cache) |
+| `GET /api/sync` | Checks Gmail for drafts that were sent (email moves to *Replied*) or deleted (back to the inbox); returns `{changed}`; cached 45 s |
+| `GET /api/unread` | `{unread, all_left, primary_unread, all_unread, handled, handled_all}`: `unread` = Primary-tab unread conversations minus Primary emails you dismissed/drafted here; `all_left` = all-tabs unread minus everything you handled here (cached 60 s; `?fresh=1` recounts everything, about 13 s; `?quick=1` reuses recent Gmail totals and recounts only what you handled) |
 | `POST /api/fetch` | `{limit, unread_only, since, until}` analyze new mail; returns `{checked, new, already, failed, message_ids}` (503 if no model) |
 | `POST /api/rewrite` | `{message_id, reply, instruction}` returns `{reply}`; saves nothing |
 | `POST /api/draft` | `{message_id, reply}` saves to Gmail Drafts, marks `drafted` |

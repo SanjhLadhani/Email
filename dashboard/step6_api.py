@@ -23,8 +23,8 @@ from automation import step3_storage as storage
 from agent import user_profile
 from agent.schemas import Email, Urgency
 from agent.step1_email_agent import rewrite_reply
-from automation.step2_gmail_reader import fetch_body, unread_count
-from automation.step4_pipeline import process_new_emails
+from automation.step2_gmail_reader import count_unread_among, fetch_body, set_seen, unread_counts
+from automation.step4_pipeline import process_new_emails, sync_drafts
 from automation.step5_drafts import save_draft
 
 app = Flask(__name__, static_folder=str(Path(__file__).parent / "static"), static_url_path="")
@@ -50,18 +50,59 @@ def get_config():
     )
 
 
-_unread = {"at": 0.0, "count": None}
+_unread = {"at": 0.0, "value": None, "counts": None, "counts_at": 0.0}
+
+
+def _mirror_in_gmail(message_id: str, seen: bool) -> dict | None:
+    """Mark the email read/unread in Gmail and keep the cached unread totals in step with it."""
+    try:
+        result = set_seen(message_id, seen)
+    except Exception:
+        return None
+    if result and result["changed"] and _unread["counts"]:
+        delta = -1 if seen else 1
+        _unread["counts"]["all"] = max(_unread["counts"]["all"] + delta, 0)
+        if result["primary"]:
+            _unread["counts"]["primary"] = max(_unread["counts"]["primary"] + delta, 0)
+    return result
 
 
 @app.get("/api/unread")
 def unread():
-    """Total unread emails in the Gmail inbox, cached for a minute (``?fresh=1`` skips the cache)."""
-    if request.args.get("fresh") or time.time() - _unread["at"] > 60:
+    """Unread mail still to deal with, two ways. Dismissing marks an email read in Gmail, so it drops out
+    of Gmail's own count; an email you only drafted a reply for is still unread there, so it is subtracted
+    here. Either way the counts go down as you work.
+
+    * ``unread``: the Primary tab, as Gmail's sidebar counts it (conversations), minus the Primary
+      emails you handled here.
+    * ``all_left``: every tab together (messages), minus everything you handled here.
+
+    Also returns the raw ``primary_unread`` / ``all_unread`` Gmail totals and how many you handled
+    (``handled`` in Primary, ``handled_all`` in any tab). Cached for a minute. ``?fresh=1`` recounts
+    everything (about 13 s); ``?quick=1`` reuses the Gmail totals from the last 10 minutes and
+    recounts only the emails you handled, which is fast (used right after you dismiss or draft).
+    """
+    now = time.time()
+    quick = bool(request.args.get("quick"))
+    if request.args.get("fresh") or quick or now - _unread["at"] > 60:
         try:
-            _unread.update(at=time.time(), count=unread_count())
+            if not (quick and _unread["counts"] and now - _unread["counts_at"] < 600):
+                _unread.update(counts=unread_counts(), counts_at=now)
+            counts = _unread["counts"]
+            ids = storage.handled_ids()
+            handled = count_unread_among(ids, primary_only=True)
+            handled_all = count_unread_among(ids)
+            _unread.update(at=now, value={
+                "unread": max(counts["primary"] - handled, 0),
+                "all_left": max(counts["all"] - handled_all, 0),
+                "primary_unread": counts["primary"],
+                "all_unread": counts["all"],
+                "handled": handled,
+                "handled_all": handled_all,
+            })
         except Exception as exc:
-            return jsonify(error=str(exc), unread=_unread["count"]), 503
-    return jsonify(unread=_unread["count"])
+            return jsonify(error=str(exc), **(_unread["value"] or {"unread": None})), 503
+    return jsonify(_unread["value"])
 
 
 @app.get("/api/emails")
@@ -105,6 +146,25 @@ def fetch_new():
     except Exception as exc:
         return jsonify(error=str(exc)), 500
     return jsonify(run._asdict())
+
+
+_sync = {"at": 0.0}
+
+
+@app.get("/api/sync")
+def sync():
+    """Check Gmail for drafts that were sent or deleted and update their emails.
+
+    Cached for 45 seconds. Responds with ``{"changed": n}``: how many emails moved out of *Drafted*
+    (sent ones to *Replied*, deleted ones back to the inbox).
+    """
+    if time.time() - _sync["at"] < 45:
+        return jsonify(changed=0)
+    _sync["at"] = time.time()
+    try:
+        return jsonify(changed=sync_drafts())
+    except Exception as exc:
+        return jsonify(error=str(exc), changed=0), 503
 
 
 @app.post("/api/rewrite")
@@ -169,13 +229,20 @@ def make_draft():
 def change_status():
     """Dismiss or restore an email.
 
-    Body: ``{"message_id": "...", "status": "dismissed" | "new"}``.
+    Body: ``{"message_id": "...", "status": "dismissed" | "new"}``. Dismissing also marks the
+    email **read in Gmail** (you have dealt with it); restoring a dismissed email marks it unread
+    again. That is the only change MailMind makes to your mailbox besides saving drafts. A failure
+    to reach Gmail never blocks the dismiss: the response says whether Gmail was updated.
     """
     data = request.get_json()
     if data["status"] not in VALID_STATUSES:
         return jsonify(error="Invalid status"), 400
+    before = storage.get_email(data["message_id"])
     storage.set_status(data["message_id"], data["status"])
-    return jsonify(ok=True)
+    result = None
+    if data["status"] == "dismissed" or (before is not None and before["status"] == "dismissed"):
+        result = _mirror_in_gmail(data["message_id"], seen=data["status"] == "dismissed")
+    return jsonify(ok=True, gmail_marked=bool(result and result["changed"]))
 
 
 @app.post("/api/urgency")

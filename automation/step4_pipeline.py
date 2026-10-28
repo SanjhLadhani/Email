@@ -11,11 +11,14 @@ from typing import NamedTuple
 
 from agent.step1_email_agent import analyze_email
 from automation.step2_gmail_reader import fetch_emails, fetch_received_dates
+from automation.step5_drafts import draft_states
 from automation.step3_storage import (
+    drafted_rows,
     is_processed,
     missing_received_dates,
     save_result,
     set_received_at,
+    set_status,
 )
 
 
@@ -33,6 +36,39 @@ def backfill_dates() -> int:
     for message_id, when in found.items():
         set_received_at(message_id, when)
     return len(found)
+
+
+_gone_once: set[str] = set()  # drafts missing from Gmail on the previous check
+
+
+def sync_drafts() -> int:
+    """Move emails out of *Drafted* once Gmail says what happened to their draft.
+
+    A reply found in Sent Mail becomes ``replied``. A draft that has vanished without a sent reply
+    (you deleted it) goes back to the inbox as ``new``; that is only done when it is missing on two
+    checks in a row, so a draft Gmail has not indexed yet is never lost. Best effort: any failure
+    leaves everything as it was.
+
+    Returns:
+        How many emails changed.
+    """
+    rows = drafted_rows()
+    if not rows:
+        _gone_once.clear()
+        return 0
+    changed = 0
+    for message_id, state in draft_states(rows).items():
+        if state == "sent":
+            set_status(message_id, "replied")
+            changed += 1
+        elif state == "gone":
+            if message_id in _gone_once:
+                set_status(message_id, "new")
+                changed += 1
+            _gone_once.symmetric_difference_update({message_id})
+        else:
+            _gone_once.discard(message_id)
+    return changed
 
 
 class RunResult(NamedTuple):
@@ -69,6 +105,10 @@ def process_new_emails(
         backfill_dates()
     except Exception as exc:  # dates are a nicety; never block triage
         print(f"Date backfill skipped: {exc}")
+    try:
+        sync_drafts()
+    except Exception as exc:  # the draft check is a nicety too
+        print(f"Draft check skipped: {exc}")
     emails = fetch_emails(limit=limit, unread_only=unread_only, since=since, until=until)
     new = already = failed = 0
     for item in emails:

@@ -6,6 +6,7 @@ yourself from Gmail. The draft is threaded under the original conversation.
 """
 
 import imaplib
+import re
 import time
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, parseaddr
@@ -15,6 +16,7 @@ from agent import user_profile
 from agent.schemas import is_noreply
 
 DRAFTS_FOLDER = "[Gmail]/Drafts"
+SENT_FOLDER = "[Gmail]/Sent Mail"
 
 
 def build_draft(sender: str, subject: str, body: str, message_id: str | None = None) -> EmailMessage:
@@ -45,6 +47,45 @@ def build_draft(sender: str, subject: str, body: str, message_id: str | None = N
         msg["References"] = message_id
     msg.set_content(body.strip() + "\n")
     return msg
+
+
+def draft_states(drafted: list[tuple[str, str]]) -> dict[str, str]:
+    """Where each reply you drafted here ended up, by looking in Gmail (read-only).
+
+    Args:
+        drafted: ``(original Message-ID, original subject)`` for every email in the *drafted* state.
+
+    Returns:
+        ``{message_id: state}`` where state is ``"draft"`` (still in Gmail Drafts), ``"sent"`` (a reply
+        is in Sent Mail) or ``"gone"`` (neither: you deleted the draft). Drafts are matched through the
+        ``In-Reply-To`` header MailMind put on them; a sent reply is also recognised by its subject.
+    """
+    from automation import step2_gmail_reader as gmail  # local import: step2 does not depend on this module
+
+    usable = [(i, s) for i, s in drafted if i.isascii() and '"' not in i and "\\" not in i]
+    address, password = config.require_email_credentials()
+    states: dict[str, str] = {}
+    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+        imap.login(address, password)
+
+        def replies_to(folder: str, ids: list[str]) -> set[str]:
+            imap.select(f'"{folder}"', readonly=True)
+            return {i for i in ids if imap.search(None, "HEADER", "In-Reply-To", f'"{i}"')[1][0].split()}
+
+        ids = [i for i, _ in usable]
+        for found in replies_to(DRAFTS_FOLDER, ids):
+            states[found] = "draft"
+        rest = [i for i in ids if i not in states]
+        for found in replies_to(SENT_FOLDER, rest):
+            states[found] = "sent"
+    for message_id, subject in usable:
+        if message_id in states:
+            continue
+        try:  # a reply sent from Gmail normally keeps In-Reply-To; fall back to its subject
+            states[message_id] = "sent" if gmail.find_sent_reply(subject) else "gone"
+        except Exception:
+            states[message_id] = "draft"  # cannot tell: leave it alone
+    return states
 
 
 def save_draft(sender: str, subject: str, body: str, message_id: str | None = None) -> None:

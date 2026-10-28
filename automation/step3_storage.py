@@ -2,7 +2,8 @@
 
 Stores every analysis keyed by the email's Message-ID so the agent never
 analyzes the same email twice, and tracks a review ``status`` for the
-dashboard (``new`` -> ``approved`` / ``dismissed`` -> ``drafted``).
+dashboard (``new``, ``dismissed``, ``drafted`` while a reply sits in Gmail Drafts, and
+``replied`` once it has been sent).
 """
 
 import json
@@ -241,6 +242,25 @@ def search_emails(query: str, exclude_id: str | None, limit: int = 5) -> list[sq
             "ORDER BY COALESCE(received_at, processed_at) DESC LIMIT ?",
             (exclude_id or "", like, like, like, limit),
         ).fetchall()
+
+
+def handled_ids() -> list[str]:
+    """Message-IDs of emails you dismissed, drafted a reply for, or replied to."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT message_id FROM emails WHERE status IN ('dismissed', 'drafted', 'replied') "
+            "AND message_id NOT LIKE 'imap-%'"
+        ).fetchall()
+    return [row["message_id"] for row in rows]
+
+
+def drafted_rows() -> list[tuple[str, str]]:
+    """``(Message-ID, subject)`` of every email whose reply sits in the *drafted* state."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT message_id, subject FROM emails WHERE status = 'drafted' AND message_id NOT LIKE 'imap-%'"
+        ).fetchall()
+    return [(row["message_id"], row["subject"]) for row in rows]
 
 
 def missing_received_dates() -> list[str]:
