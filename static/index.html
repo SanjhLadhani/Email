@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MailMind AI</title>
+  <style>
+    /* ============================================================
+       OBSIDIAN — monochromatic dark email triage UI
+       Single hue family (indigo/violet), perfect shade hierarchy
+       ============================================================ */
+
+    :root {
+      /* background ladder — darkest to lightest */
+      --bg-0: #08080c;
+      --bg-1: #0d0d14;
+      --bg-2: #12121c;
+      --bg-3: #191924;
+      --bg-4: #20202e;
+      --bg-5: #282838;
+
+      /* surface ladder */
+      --surface: #14141f;
+      --surface-2: #1a1a27;
+      --surface-3: #212130;
+
+      /* text ladder — highest contrast first */
+      --text: #f0f0f7;
+      --text-2: #a8a8c0;
+      --text-3: #6a6a88;
+      --text-4: #4a4a62;
+
+      /* borders */
+      --border: #24243a;
+      --border-2: #32324e;
+      --border-3: #42426a;
+
+      /* single accent family — indigo/violet */
+      --accent: #8b7cff;
+      --accent-2: #a99bff;
+      --accent-3: #c4b8ff;
+      --accent-dim: #6b5ce0;
+      --accent-deep: #4a3fb0;
+      --accent-bg: #1c1832;
+      --accent-bg-2: #241f42;
+      --accent-glow: rgba(139, 124, 255, 0.35);
+      --accent-glow-soft: rgba(139, 124, 255, 0.12);
+
+      /* urgency — same purple family, different lightness only */
+      --critical: #ff7a9e;
+      --critical-bg: #2a1522;
+      --critical-border: #4a2035;
+      --critical-glow: rgba(255, 122, 158, 0.3);
+
+      --high: #c4a0ff;
+      --high-bg: #1f1830;
+      --high-border: #362a52;
+      --high-glow: rgba(196, 160, 255, 0.3);
+
+      --medium: #a99bff;
+      --medium-bg: #1a1730;
+      --medium-border: #2e2850;
+      --medium-glow: rgba(169, 155, 255, 0.3);
+
+      --low: #7c8fe8;
+      --low-bg: #151828;
+      --low-border: #262d48;
+      --low-glow: rgba(124, 143, 232, 0.3);
+
+      --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow: 0 8px 28px -6px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.35);
+      --shadow-lg: 0 24px 56px -12px rgba(0, 0, 0, 0.8), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+
+      --radius-xl: 22px;
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 9px;
+      --radius-pill: 99px;
+
+      --font: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      min-height: 100vh;
+      background: var(--bg-0);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* subtle violet ambient glow */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse 60% 50% at 15% 0%, rgba(139, 124, 255, 0.08), transparent 60%),
+        radial-gradient(ellipse 50% 40% at 85% 100%, rgba(124, 143, 232, 0.06), transparent 60%);
+    }
+
+    /* subtle grid */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(139, 124, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(139, 124, 255, 0.025) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 70% 50% at 50% 30%, black 30%, transparent 100%);
+      -webkit-mask-image: radial-gradient(ellipse 70% 50% at 50% 30%, black 30%, transparent 100%);
+    }
+
+    /* ===================== TOP BAR ===================== */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px max(24px, calc((100% - 1120px) / 2));
+      background: rgba(8, 8, 12, 0.8);
+      backdrop-filter: blur(24px) saturate(1.4);
+      -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand { display: flex; flex-direction: column; gap: 3px; }
+
+    .brand h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand h1 .logo-dot {
+      width: 34px; height: 34px;
+      border-radius: 11px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      color: #fff;
+      box-shadow: 0 0 20px var(--accent-glow), 0 0 0 1px rgba(255,255,255,0.08) inset;
+      flex-shrink: 0;
+    }
+
+    .brand h1 .title-text {
+      background: linear-gradient(135deg, #f0f0f7 0%, #a99bff 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand .sub {
+      font-size: 0.78rem;
+      color: var(--text-3);
+      font-weight: 500;
+      padding-left: 46px;
+      min-height: 1.2em;
+    }
+
+    .brand .tagline { color: var(--text-2); min-height: 0; }
+    .brand .sub#meta { font-size: 0.72rem; color: var(--text-4); }
+
+    .fetch-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.82rem;
+      color: var(--text-2);
+      font-weight: 500;
+    }
+
+    /* select */
+    .select-wrap { position: relative; }
+    .select-wrap select {
+      appearance: none;
+      -webkit-appearance: none;
+      background: var(--surface-2);
+      border: 1.5px solid var(--border-2);
+      border-radius: var(--radius-sm);
+      padding: 9px 34px 9px 14px;
+      font: inherit;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s var(--ease);
+    }
+    .select-wrap select:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow-soft);
+    }
+    .select-wrap select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow-soft);
+    }
+    .select-wrap::after {
+      content: '';
+      position: absolute;
+      right: 13px; top: 50%;
+      width: 7px; height: 7px;
+      border-right: 2px solid var(--text-2);
+      border-bottom: 2px solid var(--text-2);
+      transform: translateY(-70%) rotate(45deg);
+      pointer-events: none;
+      transition: transform 0.25s var(--ease);
+    }
+    .select-wrap:focus-within::after { transform: translateY(-30%) rotate(225deg); }
+
+    /* ===================== BUTTONS ===================== */
+    button, .btn {
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border: 1.5px solid var(--border-2);
+      background: var(--surface-2);
+      color: var(--text);
+      border-radius: var(--radius-sm);
+      padding: 9px 18px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      text-decoration: none;
+      line-height: 1.3;
+      transition: all 0.22s var(--ease);
+      white-space: nowrap;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: var(--accent-glow);
+      transform: scale(0);
+      animation: rippleAnim 0.6s linear;
+      pointer-events: none;
+    }
+    @keyframes rippleAnim {
+      to { transform: scale(4); opacity: 0; }
+    }
+
+    button:hover:not(:disabled), .btn:hover {
+      border-color: var(--accent);
+      background: var(--surface-3);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px -4px var(--accent-glow);
+    }
+    button:active:not(:disabled), .btn:active { transform: translateY(0) scale(0.97); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    button.primary {
+      background: linear-gradient(135deg, var(--accent-dim), var(--accent));
+      border: none;
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 4px 18px -4px var(--accent-glow), 0 0 0 1px rgba(255,255,255,0.06) inset;
+      letter-spacing: 0.01em;
+    }
+    button.primary:hover:not(:disabled) {
+      box-shadow: 0 8px 26px -4px var(--accent-glow), 0 0 0 1px rgba(255,255,255,0.1) inset;
+      transform: translateY(-2px);
+      filter: brightness(1.1);
+    }
+
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ===================== MAIN ===================== */
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 32px 24px 96px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ===================== STATS ===================== */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+
+    .stat {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 22px 24px;
+      border-radius: var(--radius-lg);
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      overflow: hidden;
+      transition: all 0.3s var(--ease);
+      text-align: left;
+      min-height: 112px;
+      justify-content: center;
+      box-shadow: var(--shadow-sm);
+      opacity: 0;
+      animation: statIn 0.6s var(--ease) forwards;
+    }
+    .stat:nth-child(1) { animation-delay: 0.05s; }
+    .stat:nth-child(2) { animation-delay: 0.12s; }
+    .stat:nth-child(3) { animation-delay: 0.19s; }
+    .stat:nth-child(4) { animation-delay: 0.26s; }
+    @keyframes statIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .stat::before {
+      content: '';
+      position: absolute;
+      top: -40px; right: -40px;
+      width: 130px; height: 130px;
+      background: radial-gradient(circle, var(--c) 0%, transparent 70%);
+      opacity: 0.12;
+      border-radius: 50%;
+      transition: opacity 0.35s, transform 0.35s var(--ease);
+      pointer-events: none;
+    }
+    .stat:hover::before { opacity: 0.22; transform: scale(1.25); }
+
+    .stat::after {
+      content: '';
+      position: absolute;
+      top: 20%; left: 0;
+      width: 3px; height: 60%;
+      background: var(--c);
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 12px var(--c);
+      transition: height 0.3s var(--ease), box-shadow 0.3s;
+    }
+    .stat:hover::after { height: 80%; box-shadow: 0 0 20px var(--c); }
+
+    .stat .n {
+      font-size: 2.2rem;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      transition: transform 0.3s var(--ease-bounce), color 0.3s, text-shadow 0.3s;
+      display: inline-block;
+      position: relative;
+      z-index: 1;
+    }
+    .stat:hover .n {
+      transform: scale(1.1);
+      color: var(--c);
+      text-shadow: 0 0 20px var(--c);
+    }
+    .stat .n.bump { animation: bumpCount 0.5s var(--ease-bounce); }
+    @keyframes bumpCount {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.3); }
+      100% { transform: scale(1); }
+    }
+
+    .stat .l {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-3);
+      position: relative;
+      z-index: 1;
+      transition: color 0.25s;
+    }
+    .stat:hover .l { color: var(--text-2); }
+
+    .stat:hover {
+      transform: translateY(-4px) scale(1.02);
+      border-color: var(--c);
+      box-shadow: 0 14px 36px -10px var(--c), 0 0 0 1px var(--c);
+    }
+    .stat.active {
+      border-color: var(--c);
+      background: color-mix(in srgb, var(--c) 8%, var(--surface));
+      box-shadow: 0 0 0 2px var(--c), 0 14px 36px -10px var(--c);
+      transform: translateY(-2px) scale(1.01);
+    }
+    .stat.active .n { color: var(--c); text-shadow: 0 0 24px var(--c); }
+
+    /* ===================== TOOLBAR ===================== */
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 22px;
+      opacity: 0;
+      animation: fadeIn 0.6s 0.35s var(--ease) forwards;
+    }
+    @keyframes fadeIn { to { opacity: 1; } }
+
+    .views {
+      display: flex;
+      gap: 3px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 4px;
+      flex-shrink: 0;
+    }
+
+    .views button {
+      border: none;
+      background: transparent;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-3);
+      transition: all 0.2s var(--ease);
+    }
+    .views button:hover {
+      background: var(--surface-2);
+      color: var(--text-2);
+      transform: none;
+      box-shadow: none;
+    }
+    .views button.on {
+      background: linear-gradient(135deg, var(--accent-dim), var(--accent));
+      color: #fff;
+      box-shadow: 0 3px 12px -2px var(--accent-glow);
+      animation: tabPop 0.4s var(--ease-bounce);
+    }
+    @keyframes tabPop {
+      0% { transform: scale(0.9); }
+      60% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+
+    .search-wrap { flex: 1; min-width: 220px; position: relative; }
+
+    #search {
+      width: 100%;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 16px 10px 44px;
+      font: inherit;
+      font-size: 0.86rem;
+      color: var(--text);
+      transition: all 0.25s var(--ease);
+    }
+    #search::placeholder { color: var(--text-4); }
+    #search:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px var(--accent-glow-soft);
+      background: var(--surface-2);
+      transform: translateY(-1px);
+    }
+    .search-wrap::before {
+      content: '';
+      position: absolute;
+      left: 16px; top: 50%;
+      width: 14px; height: 14px;
+      transform: translateY(-50%);
+      border: 2px solid var(--text-3);
+      border-radius: 50%;
+      pointer-events: none;
+      transition: border-color 0.2s;
+    }
+    .search-wrap::after {
+      content: '';
+      position: absolute;
+      left: 27px; top: 50%;
+      width: 6px; height: 2px;
+      background: var(--text-3);
+      transform: translateY(3px) rotate(45deg);
+      border-radius: 2px;
+      pointer-events: none;
+      transition: background 0.2s;
+    }
+    .search-wrap:focus-within::before { border-color: var(--accent); }
+    .search-wrap:focus-within::after { background: var(--accent); }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-2);
+      cursor: pointer;
+      user-select: none;
+      padding: 9px 16px;
+      border-radius: var(--radius-md);
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      transition: all 0.2s var(--ease);
+      white-space: nowrap;
+    }
+    .check:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .check input {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 17px; height: 17px;
+      border: 2px solid var(--text-3);
+      border-radius: 5px;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.22s var(--ease-bounce);
+      flex-shrink: 0;
+    }
+    .check input:checked {
+      background: linear-gradient(135deg, var(--accent-dim), var(--accent));
+      border-color: transparent;
+      box-shadow: 0 0 12px -2px var(--accent-glow);
+      transform: scale(1.08);
+    }
+    .check input:checked::after {
+      content: '';
+      position: absolute;
+      left: 4px; top: 1px;
+      width: 5px; height: 9px;
+      border: solid #fff;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    /* ===================== LIST ===================== */
+    .list { display: flex; flex-direction: column; gap: 10px; }
+
+    .empty {
+      text-align: center;
+      padding: 72px 24px;
+      border-radius: var(--radius-xl);
+      border: 2px dashed var(--border-2);
+      background: var(--surface);
+      color: var(--text-3);
+      font-size: 0.95rem;
+      font-weight: 500;
+      animation: fadeIn 0.5s var(--ease);
+    }
+    .empty::before {
+      content: '📭';
+      display: block;
+      font-size: 2.8rem;
+      margin-bottom: 16px;
+      opacity: 0.5;
+      animation: bounceEmoji 2.4s ease-in-out infinite;
+    }
+    @keyframes bounceEmoji {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    /* ===================== CARD ===================== */
+    .card {
+      position: relative;
+      border-radius: var(--radius-lg);
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      overflow: hidden;
+      transition: all 0.3s var(--ease);
+      box-shadow: var(--shadow-sm);
+      opacity: 0;
+      animation: cardIn 0.5s var(--ease) forwards;
+    }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(16px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .card:nth-child(1) { animation-delay: 0.02s; }
+    .card:nth-child(2) { animation-delay: 0.06s; }
+    .card:nth-child(3) { animation-delay: 0.10s; }
+    .card:nth-child(4) { animation-delay: 0.14s; }
+    .card:nth-child(5) { animation-delay: 0.18s; }
+    .card:nth-child(6) { animation-delay: 0.22s; }
+    .card:nth-child(7) { animation-delay: 0.26s; }
+    .card:nth-child(8) { animation-delay: 0.30s; }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 4px;
+      background: var(--c);
+      box-shadow: 0 0 16px var(--c);
+      z-index: 2;
+      transition: width 0.3s var(--ease), box-shadow 0.3s;
+    }
+    .card:hover::before { width: 6px; box-shadow: 0 0 24px var(--c); }
+
+    .card:hover {
+      border-color: color-mix(in srgb, var(--c) 50%, var(--border));
+      box-shadow: 0 10px 32px -10px color-mix(in srgb, var(--c) 35%, transparent), var(--shadow-sm);
+      transform: translateX(3px) translateY(-1px);
+    }
+    .card.open {
+      border-color: color-mix(in srgb, var(--c) 70%, var(--border));
+      box-shadow: 0 20px 52px -14px color-mix(in srgb, var(--c) 45%, transparent), var(--shadow);
+    }
+    .card.open::before { width: 6px; box-shadow: 0 0 28px var(--c); }
+
+    .card.removing {
+      animation: cardOut 0.4s var(--ease) forwards;
+    }
+    @keyframes cardOut {
+      to { opacity: 0; transform: translateX(80px) scale(0.9); max-height: 0; margin: 0; padding: 0; }
+    }
+
+    .card-head {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 15px;
+      width: 100%;
+      padding: 18px 22px;
+      background: transparent;
+      border: none;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      color: inherit;
+      border-radius: 0;
+      transition: background 0.2s;
+      position: relative;
+      z-index: 1;
+    }
+    .card-head:hover {
+      background: color-mix(in srgb, var(--c) 6%, transparent);
+      transform: none;
+      box-shadow: none;
+      border-color: transparent;
+    }
+
+    .badge {
+      font-size: 0.65rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--bg-0);
+      background: var(--c);
+      padding: 5px 12px;
+      border-radius: var(--radius-pill);
+      white-space: nowrap;
+      flex-shrink: 0;
+      box-shadow: 0 2px 12px -2px var(--c);
+      transition: transform 0.25s var(--ease-bounce), box-shadow 0.25s;
+    }
+    .card:hover .badge {
+      transform: scale(1.08) rotate(-2deg);
+      box-shadow: 0 4px 18px -2px var(--c);
+    }
+
+    .subject {
+      font-weight: 700;
+      font-size: 0.93rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    .sender {
+      font-size: 0.78rem;
+      color: var(--text-3);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tags {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .pill {
+      font-size: 0.67rem;
+      font-weight: 600;
+      padding: 3px 11px;
+      border-radius: var(--radius-pill);
+      border: 1.5px solid var(--border-2);
+      background: var(--surface-2);
+      color: var(--text-2);
+      white-space: nowrap;
+      transition: all 0.2s var(--ease);
+    }
+    .pill.action {
+      color: var(--bg-0);
+      border-color: transparent;
+      background: var(--accent-2);
+      font-weight: 700;
+      animation: pulseGlow 2.5s ease-in-out infinite;
+    }
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 0 0 transparent; }
+      50% { box-shadow: 0 0 16px -2px var(--accent-glow); }
+    }
+
+    .card-body {
+      display: none;
+      padding: 0 22px 22px;
+      border-top: 1.5px solid var(--border);
+      position: relative;
+      z-index: 1;
+    }
+    .card.open .card-body {
+      display: block;
+      animation: bodySlide 0.35s var(--ease);
+    }
+    @keyframes bodySlide {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-body p {
+      margin: 16px 0 6px;
+      font-size: 0.91rem;
+      line-height: 1.68;
+      color: var(--text);
+    }
+
+    .why {
+      font-size: 0.82rem;
+      color: var(--text-2);
+      margin: 0 0 16px !important;
+      padding: 12px 16px;
+      background: var(--surface-2);
+      border-radius: var(--radius-sm);
+      border-left: 3px solid var(--c);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .why:hover {
+      transform: translateX(4px);
+      box-shadow: 0 0 20px -8px var(--c);
+    }
+    .why strong { color: var(--text); font-weight: 700; }
+
+    textarea {
+      width: 100%;
+      min-height: 124px;
+      resize: vertical;
+      font: inherit;
+      font-size: 0.88rem;
+      line-height: 1.65;
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      border: 1.5px solid var(--border);
+      background: var(--bg-1);
+      color: var(--text);
+      transition: all 0.25s var(--ease);
+    }
+    textarea::placeholder { color: var(--text-4); }
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: var(--bg-2);
+      box-shadow: 0 0 0 4px var(--accent-glow-soft);
+      transform: translateY(-1px);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .actions .spacer { flex: 1; }
+    .actions .btn, .actions button { font-size: 0.81rem; padding: 8px 15px; }
+
+    .actions button[data-action="dismissed"] { color: var(--text-2); }
+    .actions button[data-action="dismissed"]:hover {
+      color: var(--critical);
+      border-color: var(--critical-border);
+      background: var(--critical-bg);
+      box-shadow: 0 4px 16px -4px var(--critical-glow);
+    }
+    .actions button[data-action="new"] {
+      color: var(--low);
+      border-color: var(--low-border);
+      background: var(--low-bg);
+    }
+    .actions button[data-action="new"]:hover {
+      background: color-mix(in srgb, var(--low) 15%, transparent);
+      border-color: var(--low);
+      box-shadow: 0 4px 16px -4px var(--low-glow);
+    }
+
+    /* ===================== TOAST ===================== */
+    .toast {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translate(-50%, 24px) scale(0.95);
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 14px 28px;
+      border-radius: var(--radius-md);
+      font-size: 0.87rem;
+      font-weight: 600;
+      box-shadow: 0 20px 56px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px var(--border-2);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.4s var(--ease-bounce);
+      z-index: 100;
+      max-width: 90vw;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow: hidden;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translate(-50%, 0) scale(1);
+    }
+    .toast.error {
+      background: var(--critical-bg);
+      color: var(--critical);
+      box-shadow: 0 20px 56px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px var(--critical);
+    }
+    .toast .toast-icon {
+      font-size: 1.1rem;
+      animation: toastIconPop 0.5s var(--ease-bounce);
+    }
+    @keyframes toastIconPop {
+      0% { transform: scale(0) rotate(-30deg); }
+      70% { transform: scale(1.2) rotate(8deg); }
+      100% { transform: scale(1) rotate(0); }
+    }
+    .toast::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 3px;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+      animation: toastProgress 3.8s linear forwards;
+    }
+    @keyframes toastProgress {
+      from { width: 100%; }
+      to { width: 0; }
+    }
+
+    /* ===================== SCROLLBAR ===================== */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-3);
+      border-radius: 99px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); background-clip: padding-box; }
+
+    /* ===================== RESPONSIVE ===================== */
+    @media (max-width: 860px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .topbar { padding: 14px 18px; }
+      main { padding: 22px 18px 64px; }
+      .card-head { grid-template-columns: auto 1fr; gap: 12px; padding: 16px 18px; }
+      .tags { display: none; }
+      .fetch-area { width: 100%; justify-content: space-between; }
+      .brand h1 { font-size: 1.3rem; }
+      .brand .sub { padding-left: 46px; }
+      .stats { gap: 10px; }
+      .stat { padding: 18px; min-height: 100px; }
+      .stat .n { font-size: 1.8rem; }
+      .toolbar { gap: 10px; }
+      .views button { padding: 7px 12px; font-size: 0.78rem; }
+      .actions .spacer { display: none; }
+    }
+    @media (max-width: 400px) {
+      .stat .n { font-size: 1.6rem; }
+      .stat .l { font-size: 0.66rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* ===================== TRAFFIC-LIGHT URGENCY =====================
+       Flat red / yellow / green at rest. Glow, depth and tint appear on hover only. */
+    :root {
+      --critical: #ef4444; --critical-bg: #2a1214; --critical-border: #6b2024; --critical-glow: rgba(239, 68, 68, 0.45);
+      --high:     #ef4444; --high-bg:     #2a1214; --high-border:     #6b2024; --high-glow:     rgba(239, 68, 68, 0.45);
+      --medium:   #eab308; --medium-bg:   #261f08; --medium-border:   #6b5a0e; --medium-glow:   rgba(234, 179, 8, 0.45);
+      --low:      #22c55e; --low-bg:      #0c2316; --low-border:      #14602f; --low-glow:      rgba(34, 197, 94, 0.45);
+    }
+
+    /* flat at rest */
+    .stat, .card { box-shadow: none; }
+    .stat::before { opacity: 0; }
+    .stat::after, .card::before { box-shadow: none; }
+    .stat .n { text-shadow: none; }
+    .badge { box-shadow: none; border: 1.5px solid var(--c); padding: 3.5px 10.5px; }
+    .pill.action { animation: none; }
+
+    /* critical = solid red, high = red outline, so the two stay distinguishable */
+    .badge[data-level="high"] { background: transparent; color: var(--c); }
+
+    /* urgency dropdown */
+    .rate { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 0.78rem; font-weight: 600; }
+    .rate select {
+      font: inherit; font-size: 0.81rem; font-weight: 600; text-transform: capitalize;
+      color: var(--text); color-scheme: dark;
+      background: var(--surface-2);
+      border: 1.5px solid var(--border-2);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+    .rate select:hover { border-color: var(--accent); }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
+    }
+
+    /* ===================== NO GLOW =====================
+       No shadows, glows or haze anywhere - hover only changes colour and border. */
+    *, *::before, *::after { box-shadow: none !important; text-shadow: none !important; }
+    body::before { display: none; }
+    .stat::before, .stat:hover::before { display: none; }
+
+    /* rings that used to be shadows are now plain outlines */
+    .stat.active { outline: 2px solid var(--c); outline-offset: -2px; }
+    textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button:focus-visible, a:focus-visible, .stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* ===================== DATE FILTER ===================== */
+    .date-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .date-filter[hidden], #customDates[hidden] { display: none; }
+    #customDates { display: inline-flex; align-items: center; gap: 8px; }
+    #customDates .to { color: var(--text-3); font-size: 0.8rem; }
+    .date-filter input[type="date"], #whenDate {
+      font: inherit; font-size: 0.82rem; font-weight: 600;
+      color: var(--text); color-scheme: dark;
+      background: var(--surface-2);
+      border: 1.5px solid var(--border-2);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      transition: border-color 0.2s;
+    }
+    .date-filter input[type="date"]:hover, #whenDate:hover { border-color: var(--accent); }
+    #whenDate[hidden] { display: none; }
+    .sender .when { color: var(--text-3); }
+
+    /* ===================== DRAFT / COMPOSE PANEL ===================== */
+    .compose {
+      border: 1.5px solid var(--border-2);
+      border-radius: var(--radius-md);
+      background: var(--bg-1);
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .compose-title {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 14px;
+      background: var(--surface-2);
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--text-3);
+    }
+    .compose-title .saved-tag { color: var(--low); }
+    .compose-row {
+      display: flex; gap: 12px; align-items: baseline;
+      padding: 8px 14px;
+      border-top: 1px solid var(--border);
+      font-size: 0.82rem;
+    }
+    .compose-row span { flex: 0 0 58px; color: var(--text-3); }
+    .compose-row b { min-width: 0; font-weight: 600; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .compose textarea {
+      display: block;
+      border: 0; border-top: 1px solid var(--border); border-radius: 0;
+      background: transparent;
+      min-height: 190px;
+      padding: 16px 14px;
+      line-height: 1.7;
+    }
+    .compose textarea:focus { outline: 2px solid var(--accent); outline-offset: -2px; transform: none; }
+    .compose.saved textarea { color: var(--text-2); }
+    .rewrite { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--border); }
+    .rewrite input {
+      flex: 1; min-width: 0; font: inherit; font-size: 0.84rem; color: var(--text);
+      background: var(--surface-2); border: 1.5px solid var(--border-2);
+      border-radius: var(--radius-sm); padding: 8px 10px;
+    }
+    .rewrite input::placeholder { color: var(--text-4); }
+    .rewrite button[hidden] { display: none; }
+    .compose-foot { padding: 8px 14px; border-top: 1px solid var(--border); font-size: 0.72rem; color: var(--text-3); }
+    .compose.none { padding: 14px 16px; border-style: dashed; color: var(--text-3); font-size: 0.84rem; }
+    .actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* ===================== POLISH (flat, no glow) ===================== */
+    /* header lines up with the page content below it */
+    .topbar { padding: 16px max(24px, calc((100% - 1120px) / 2 + 24px)); }
+    .fetch-area { gap: 12px; }
+
+    /* model status pill */
+    .model-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 12px;
+      border: 1.5px solid var(--border-2);
+      border-radius: var(--radius-pill);
+      font-size: 0.76rem; font-weight: 600; color: var(--text-2);
+      white-space: nowrap;
+    }
+    .model-pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+    .model-pill[data-state="online"] i { background: var(--low); }
+    .model-pill[data-state="offline"] i { background: var(--critical); }
+    .model-pill[data-state="offline"] { border-color: var(--critical-border); color: var(--critical); }
+
+    /* compact count boxes with a share bar */
+    .stat { min-height: 0; padding: 16px 20px 18px; gap: 2px; border-radius: var(--radius-md); }
+    .stat .n { font-size: 2rem; }
+    .stat .bar { align-self: stretch; width: 100%; display: block; height: 4px; margin-top: 12px; border-radius: 99px; background: var(--border); overflow: hidden; position: relative; z-index: 1; }
+    .stat .bar i { display: block; height: 100%; width: 0; background: var(--c); border-radius: 99px; transition: width 0.5s var(--ease); }
+
+    /* aligned, calmer cards */
+    .badge { min-width: 76px; text-align: center; }
+    .card-head { padding: 16px 20px; }
+    .sender .who { color: var(--text-2); font-weight: 600; }
+    .sender .when { color: var(--text-3); }
+    .pill.action { background: transparent; color: var(--accent-2); border: 1.5px solid var(--accent-dim); animation: none; }
+
+    @media (max-width: 640px) {
+      .topbar { padding: 14px 18px; }
+      .fetch-area { width: 100%; flex-wrap: wrap; }
+      .stat { padding: 14px 16px 16px; }
+      .stat .n { font-size: 1.7rem; }
+      .badge { min-width: 66px; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <h1>
+      <span class="logo-dot">✉</span>
+      <span class="title-text">MailMind AI</span>
+    </h1>
+    <p class="sub tagline">An intelligent agent that understands, prioritizes, and manages emails.</p>
+    <p class="sub" id="meta">Connecting…</p>
+  </div>
+  <div class="fetch-area">
+    <span class="model-pill" id="modelPill" data-state="checking"><i></i><b>Checking model…</b></span>
+    <div class="select-wrap">
+      <select id="when" aria-label="Which emails to fetch">
+        <option value="newest">Newest</option>
+        <option value="today">Today</option>
+        <option value="yesterday">Yesterday</option>
+        <option value="3d">Last 3 days</option>
+        <option value="pick">Pick a date…</option>
+      </select>
+    </div>
+    <input type="date" id="whenDate" aria-label="Fetch emails from this date" hidden>
+    <div class="select-wrap" title="At most this many emails">
+      <select id="limit" aria-label="How many emails">
+        <option value="5">5</option><option value="10" selected>10</option><option value="25">25</option><option value="50">50</option>
+      </select>
+    </div>
+    <label class="check" title="Untick to include emails you already read"><input type="checkbox" id="unreadOnly" checked> Unread only</label>
+    <button id="fetch" class="primary">Fetch &amp; analyze</button>
+  </div>
+</header>
+
+<main>
+  <section class="stats" id="stats" aria-label="Urgency statistics"></section>
+
+  <section class="toolbar">
+    <div class="views" id="views" role="tablist"></div>
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="Search emails…" aria-label="Search emails">
+    </div>
+    <div class="select-wrap">
+      <select id="category" aria-label="Category"></select>
+    </div>
+    <div class="date-filter" role="group" aria-label="Filter by date">
+      <div class="select-wrap">
+        <select id="datePreset" aria-label="Date range">
+          <option value="any">Any time</option>
+          <option value="today">Today</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="custom">Custom range…</option>
+        </select>
+      </div>
+      <span id="customDates" hidden>
+        <input type="date" id="dateFrom" aria-label="From date">
+        <span class="to">to</span>
+        <input type="date" id="dateTo" aria-label="To date">
+      </span>
+    </div>
+    <label class="check"><input type="checkbox" id="onlyAction"> Needs action</label>
+  </section>
+
+  <section id="list" class="list" aria-live="polite"></section>
+</main>
+
+<div id="toast" class="toast" role="status"></div>
+
+<script>
+/* ==================================================================
+   OBSIDIAN EMAIL TRIAGE — monochromatic dark dashboard
+   ================================================================== */
+
+const URGENCIES = ["critical", "high", "medium", "low"];
+const VIEWS = { new: "Inbox", drafted: "Drafted", dismissed: "Dismissed", all: "All" };
+
+const state = {
+  emails: [],
+  view: "new",
+  urgency: null,
+  search: "",
+  onlyAction: false,
+  category: "all",
+  datePreset: "any",
+  dateFrom: "",
+  dateTo: "",
+  open: new Set(),
+  drafts: {},
+  mailbox: "",
+  name: "",
+  lastCounts: {},
+};
+
+const $ = (id) => document.getElementById(id);
+
+function esc(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
+}
+
+function toast(message, isError = false, icon = "✓") {
+  const el = $("toast");
+  el.innerHTML = `<span class="toast-icon">${isError ? "✕" : icon}</span><span>${esc(message)}</span>`;
+  el.className = `toast show${isError ? " error" : ""}`;
+  void el.offsetWidth;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { el.className = "toast"; }, 3800);
+}
+
+/* ripple */
+document.addEventListener("pointerdown", (ev) => {
+  const btn = ev.target.closest("button, .btn");
+  if (!btn || btn.disabled) return;
+  const rect = btn.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  const ripple = document.createElement("span");
+  ripple.className = "ripple";
+  ripple.style.width = ripple.style.height = `${size}px`;
+  ripple.style.left = `${ev.clientX - rect.left - size / 2}px`;
+  ripple.style.top = `${ev.clientY - rect.top - size / 2}px`;
+  btn.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 600);
+});
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body ? "POST" : "GET",
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function gmailLink(messageId) {
+  const id = encodeURIComponent(messageId.replace(/^<|>$/g, ""));
+  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(state.mailbox)}#search/rfc822msgid:${id}`;
+}
+const draftsLink = () => `https://mail.google.com/mail/?authuser=${encodeURIComponent(state.mailbox)}#drafts`;
+
+/** When the email was sent (falls back to when it was analyzed), as a Date, or null. */
+function emailDate(e) {
+  const raw = e.received_at || e.processed_at;
+  if (!raw) return null;
+  const d = new Date(raw.includes("T") ? raw : raw.replace(" ", "T") + "Z"); // SQLite stamps are UTC
+  return isNaN(d) ? null : d;
+}
+
+function formatDate(d) {
+  if (!d) return "";
+  const opts = { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return d.toLocaleString(undefined, opts);
+}
+
+/** [from, to] for the chosen date filter, in local time; null means unbounded. */
+function dateRange() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysAgo = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return d; };
+  switch (state.datePreset) {
+    case "today": return [today, null];
+    case "7d": return [daysAgo(6), null];
+    case "30d": return [daysAgo(29), null];
+    case "custom": return [
+      state.dateFrom ? new Date(`${state.dateFrom}T00:00:00`) : null,
+      state.dateTo ? new Date(`${state.dateTo}T23:59:59.999`) : null,
+    ];
+    default: return [null, null];
+  }
+}
+
+function inDateRange(e) {
+  const [from, to] = dateRange();
+  if (!from && !to) return true;
+  const d = emailDate(e);
+  return !!d && (!from || d >= from) && (!to || d <= to);
+}
+
+function visibleEmails() {
+  const q = state.search.toLowerCase();
+  return state.emails.filter((e) => {
+    if (state.view !== "all" && e.status !== state.view) return false;
+    if (state.urgency && e.urgency !== state.urgency) return false;
+    if (state.category !== "all" && e.category !== state.category) return false;
+    if (state.onlyAction && !e.requires_action) return false;
+    if (!inDateRange(e)) return false;
+    if (!q) return true;
+    return [e.sender, e.subject, e.summary, e.category, e.reason].some((t) => (t || "").toLowerCase().includes(q));
+  });
+}
+
+function renderStats() {
+  const inView = state.emails.filter(
+    (e) => (state.view === "all" || e.status === state.view) && inDateRange(e) &&
+      (state.category === "all" || e.category === state.category)
+  );
+  const statsEl = $("stats");
+  const counts = {};
+  URGENCIES.forEach((u) => { counts[u] = inView.filter((e) => e.urgency === u).length; });
+
+  const existing = statsEl.children.length === 4;
+  if (!existing) {
+    statsEl.innerHTML = URGENCIES.map((u) => `
+      <button class="stat${state.urgency === u ? " active" : ""}" data-urgency="${u}" style="--c:var(--${u})" aria-pressed="${state.urgency === u}">
+        <span class="n" data-count="0">0</span><span class="l">${u}</span><span class="bar"><i></i></span>
+      </button>
+    `).join("");
+  }
+
+  URGENCIES.forEach((u, i) => {
+    const card = statsEl.children[i];
+    if (!card) return;
+    card.classList.toggle("active", state.urgency === u);
+    card.setAttribute("aria-pressed", state.urgency === u);
+    const nEl = card.querySelector(".n");
+    animateCount(nEl, counts[u], state.lastCounts[u]);
+    const total = URGENCIES.reduce((sum, k) => sum + counts[k], 0);
+    card.querySelector(".bar i").style.width = total ? `${(100 * counts[u]) / total}%` : "0%";
+    state.lastCounts[u] = counts[u];
+  });
+}
+
+function animateCount(el, target, from) {
+  if (from === undefined) from = 0;
+  if (from === target) { el.textContent = target; return; }
+  const duration = 500;
+  const start = performance.now();
+  const delta = target - from;
+  function tick(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.round(from + delta * eased);
+    if (t < 1) requestAnimationFrame(tick);
+    else {
+      el.textContent = target;
+      el.classList.add("bump");
+      setTimeout(() => el.classList.remove("bump"), 500);
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+function renderViews() {
+  $("views").innerHTML = Object.entries(VIEWS)
+    .map(([key, label]) => `<button data-view="${key}" class="${state.view === key ? "on" : ""}" role="tab" aria-selected="${state.view === key}">${label}</button>`)
+    .join("");
+}
+
+/** "Google <no-reply@x.com>" -> "Google"; falls back to the address. */
+function senderName(sender) {
+  const name = (sender.match(/^\s*"?([^"<]+?)"?\s*</) || [])[1];
+  return (name || sender.replace(/[<>]/g, "")).trim();
+}
+
+/** "just now", "5m ago", "3h ago", "Yesterday", "4d ago", else "Oct 27". */
+function timeAgo(d) {
+  if (!d) return "";
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/** Show whether the Colab model is reachable. */
+async function pollStatus() {
+  const pill = $("modelPill");
+  try {
+    const s = await api("/api/status");
+    pill.dataset.state = s.online ? "online" : "offline";
+    pill.querySelector("b").textContent = s.online ? `${s.model} online · ${s.via === "api" ? "API" : "Colab"}` : "Model offline";
+    pill.title = s.online ? "The model is reachable" : "Colab is off and no API key is set. Add FALLBACK_API_KEY to .env (see README)";
+  } catch {
+    pill.dataset.state = "offline";
+    pill.querySelector("b").textContent = "Dashboard offline";
+  }
+}
+
+function renderCard(e) {
+  const open = state.open.has(e.message_id);
+  const reply = state.drafts[e.message_id] ?? e.suggested_reply ?? "";
+  const id = esc(e.message_id);
+  const drafted = e.status === "drafted";
+  const noreply = /(no[-_.]?reply|do[-_.]?not[-_.]?reply|mailer-daemon|postmaster|notifications?@|alerts?@|bounce)/i.test(e.sender);
+  const to = (e.sender.match(/<([^>]+)>/) || [, e.sender])[1];
+  const subj = /^re:/i.test(e.subject) ? e.subject : `Re: ${e.subject}`;
+  const from = state.name ? `${state.name} &lt;${esc(state.mailbox)}&gt;` : esc(state.mailbox);
+
+  return `
+  <article class="card${open ? " open" : ""}" data-id="${id}" style="--c:var(--${e.urgency})">
+    <button class="card-head" data-toggle aria-expanded="${open}">
+      <span class="badge" data-level="${e.urgency}">${e.urgency}</span>
+      <span style="min-width:0;">
+        <div class="subject">${esc(e.subject) || "(no subject)"}</div>
+        <div class="sender" title="${esc(e.sender)} · ${esc(formatDate(emailDate(e)))}"><span class="who">${esc(senderName(e.sender))}</span> <span class="when">· ${esc(timeAgo(emailDate(e)))}</span></div>
+      </span>
+      <span class="tags">
+        <span class="pill">${esc(e.category)}</span>
+        ${e.requires_action ? '<span class="pill action">action needed</span>' : ""}
+        ${e.status !== "new" ? `<span class="pill">${e.status}</span>` : ""}
+      </span>
+    </button>
+    <div class="card-body">
+      <p>${esc(e.summary)}</p>
+      <p class="why"><strong>Why ${esc(e.urgency)}:</strong> ${esc(e.reason)}</p>
+      ${noreply
+        ? '<div class="compose none">No reply needed. This is an automated address that cannot receive replies.</div>'
+        : `<div class="compose${drafted ? " saved" : ""}">
+        <div class="compose-title"><span>Draft reply</span>${drafted
+          ? '<span class="saved-tag">Saved in Gmail Drafts</span>'
+          : '<span>Edit, then save as a draft</span>'}</div>
+        <div class="compose-row"><span>From</span><b>${from}</b></div>
+        <div class="compose-row"><span>To</span><b>${esc(to)}</b></div>
+        <div class="compose-row"><span>Subject</span><b>${esc(subj)}</b></div>
+        <textarea data-reply placeholder="No reply suggested - write one here if you want to answer" aria-label="Draft reply"${drafted ? " readonly" : ""}>${esc(reply)}</textarea>
+        ${drafted ? "" : `<div class="rewrite">
+          <input data-instruction maxlength="500" placeholder="Tell the AI what to change, e.g. say I don't have a Mac" aria-label="Instruction for rewriting the draft">
+          <button data-action="rewrite">Rewrite</button>
+          <button data-action="restore" title="Bring back the first draft the AI wrote"${reply === (e.suggested_reply ?? "") ? " hidden" : ""}>Original</button>
+        </div>`}
+        <div class="compose-foot">Goes to your Gmail Drafts only. Nothing is sent automatically.</div>
+      </div>`}
+      <div class="actions">
+        <a class="btn" href="${gmailLink(e.message_id)}" target="_blank" rel="noopener">Open in Gmail</a>
+        ${drafted
+          ? `<a class="btn" href="${draftsLink()}" target="_blank" rel="noopener">View draft</a>`
+          : noreply ? ""
+          : `<button data-action="draft" class="primary"${reply.trim() ? "" : " disabled"}>Save as Gmail draft</button>`}
+        <span class="spacer"></span>
+        <label class="rate" title="Correct the urgency - the agent learns from it">Urgency
+          <select data-set-urgency aria-label="Correct urgency">${URGENCIES.map((u) => `<option${u === e.urgency ? " selected" : ""}>${u}</option>`).join("")}</select>
+        </label>
+        ${e.status === "new"
+          ? '<button data-action="dismissed">Dismiss</button>'
+          : '<button data-action="new">Restore</button>'}
+      </div>
+    </div>
+  </article>`;
+}
+
+function renderCategories() {
+  const inView = state.emails.filter((e) => state.view === "all" || e.status === state.view);
+  const counts = {};
+  inView.forEach((e) => { counts[e.category] = (counts[e.category] || 0) + 1; });
+  const names = Object.keys(counts).sort();
+  if (state.category !== "all" && !names.includes(state.category)) names.push(state.category);
+  $("category").innerHTML =
+    `<option value="all">All categories (${inView.length})</option>` +
+    names.map((c) => `<option value="${esc(c)}"${c === state.category ? " selected" : ""}>${esc(c)} (${counts[c] || 0})</option>`).join("");
+}
+
+function activeFilters() {
+  const f = [];
+  if (state.urgency) f.push(`urgency: ${state.urgency}`);
+  if (state.category !== "all") f.push(`category: ${state.category}`);
+  if (state.onlyAction) f.push("needs action");
+  if (state.search) f.push(`search "${state.search}"`);
+  if (state.datePreset !== "any") f.push("date range");
+  return f;
+}
+
+function clearFilters() {
+  Object.assign(state, { urgency: null, category: "all", onlyAction: false, search: "", datePreset: "any", dateFrom: "", dateTo: "" });
+  $("search").value = "";
+  $("onlyAction").checked = false;
+  $("datePreset").value = "any";
+  $("dateFrom").value = "";
+  $("dateTo").value = "";
+  $("customDates").hidden = true;
+  render();
+}
+
+function renderList() {
+  const items = visibleEmails();
+  if (items.length) {
+    $("list").innerHTML = items.map(renderCard).join("");
+    return;
+  }
+  const filters = activeFilters();
+  $("list").innerHTML = filters.length
+    ? `<div class="empty">No emails match your filters (${esc(filters.join(", "))}).<br>
+         <button class="primary" data-clear-filters style="margin-top:14px">Clear filters</button></div>`
+    : '<div class="empty">No emails here. Try "Fetch &amp; analyze new emails".</div>';
+}
+
+function render() {
+  renderCategories();
+  renderStats();
+  renderViews();
+  renderList();
+}
+
+async function load() {
+  state.emails = await api("/api/emails");
+  render();
+}
+
+async function run(button, work) {
+  const label = button.textContent;
+  const isPrimary = button.classList.contains("primary");
+  button.disabled = true;
+  if (isPrimary) {
+    button.innerHTML = `<span class="spinner"></span>${label}`;
+  } else {
+    button.textContent = "…";
+  }
+  try {
+    await work(button);
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
+/* fetch by day */
+
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** The days to fetch, from the "which emails" controls: {body} to send, or {error}. */
+function fetchRange() {
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return isoDay(d); };
+  switch ($("when").value) {
+    case "today": return { body: { since: day(0), until: day(0) } };
+    case "yesterday": return { body: { since: day(1), until: day(1) } };
+    case "3d": return { body: { since: day(2), until: day(0) } };
+    case "pick":
+      return $("whenDate").value
+        ? { body: { since: $("whenDate").value, until: $("whenDate").value } }
+        : { error: "Pick a date first." };
+    default: return { body: {} };
+  }
+}
+
+/** Point the list's date filter at the days just fetched, so only those show. */
+function showDays(since, until) {
+  Object.assign(state, { datePreset: "custom", dateFrom: since, dateTo: until });
+  $("datePreset").value = "custom";
+  $("customDates").hidden = false;
+  $("dateFrom").value = since;
+  $("dateTo").value = until;
+}
+
+$("when").addEventListener("change", (ev) => {
+  $("whenDate").hidden = ev.target.value !== "pick";
+  $("whenDate").max = isoDay(new Date());
+});
+
+/* events */
+
+$("fetch").addEventListener("click", (ev) =>
+  run(ev.currentTarget, async (btn) => {
+    btn.innerHTML = `<span class="spinner"></span>Reading inbox…`;
+    const range = fetchRange();
+    if (range.error) throw new Error(range.error);
+    const r = await api("/api/fetch", {
+      limit: Number($("limit").value),
+      unread_only: $("unreadOnly").checked,
+      ...range.body,
+    });
+    if (range.body.since) showDays(range.body.since, range.body.until);
+    await load();
+    toast(
+      `Checked ${r.checked} · ${r.new} new` +
+        (r.already ? ` · ${r.already} already analyzed` : "") +
+        (r.failed ? ` · ${r.failed} failed` : ""),
+      r.failed > 0
+    );
+  })
+);
+
+$("stats").addEventListener("click", (ev) => {
+  const u = ev.target.closest("[data-urgency]")?.dataset.urgency;
+  if (!u) return;
+  state.urgency = state.urgency === u ? null : u;
+  render();
+});
+
+$("views").addEventListener("click", (ev) => {
+  const v = ev.target.closest("[data-view]")?.dataset.view;
+  if (v) { state.view = v; render(); }
+});
+
+$("search").addEventListener("input", (ev) => { state.search = ev.target.value; renderList(); });
+$("category").addEventListener("change", (ev) => { state.category = ev.target.value; render(); });
+$("datePreset").addEventListener("change", (ev) => {
+  state.datePreset = ev.target.value;
+  $("customDates").hidden = state.datePreset !== "custom";
+  render();
+});
+$("dateFrom").addEventListener("change", (ev) => { state.dateFrom = ev.target.value; render(); });
+$("dateTo").addEventListener("change", (ev) => { state.dateTo = ev.target.value; render(); });
+$("onlyAction").addEventListener("change", (ev) => { state.onlyAction = ev.target.checked; renderList(); });
+
+$("list").addEventListener("input", (ev) => {
+  if (!ev.target.matches("[data-reply]")) return;
+  const card = ev.target.closest(".card");
+  state.drafts[card.dataset.id] = ev.target.value;
+  const save = card.querySelector('[data-action="draft"]');
+  if (save) save.disabled = !ev.target.value.trim();
+  syncOriginal(card);
+});
+
+$("list").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && ev.target.matches("[data-instruction]")) {
+    ev.preventDefault();
+    ev.target.closest(".card").querySelector('[data-action="rewrite"]').click();
+  }
+});
+
+/** The first draft the AI wrote for this card (kept untouched until you save). */
+function originalReply(card) {
+  return state.emails.find((x) => x.message_id === card.dataset.id)?.suggested_reply ?? "";
+}
+
+/** Show the "Original" button only while the draft differs from the AI's first one. */
+function syncOriginal(card) {
+  const restore = card.querySelector('[data-action="restore"]');
+  if (restore) restore.hidden = card.querySelector("[data-reply]").value === originalReply(card);
+}
+
+$("list").addEventListener("change", (ev) => {
+  if (!ev.target.matches("[data-set-urgency]")) return;
+  const id = ev.target.closest(".card").dataset.id;
+  run(ev.target, async () => {
+    await api("/api/urgency", { message_id: id, urgency: ev.target.value });
+    await load();
+    toast("Saved - the agent will use this as an example next time");
+  });
+});
+
+$("list").addEventListener("click", (ev) => {
+  if (ev.target.closest("[data-clear-filters]")) clearFilters();
+});
+
+$("list").addEventListener("click", (ev) => {
+  const card = ev.target.closest(".card");
+  if (!card) return;
+  const id = card.dataset.id;
+
+  if (ev.target.closest("[data-toggle]")) {
+    state.open.has(id) ? state.open.delete(id) : state.open.add(id);
+    card.classList.toggle("open");
+    card.querySelector("[data-toggle]").setAttribute("aria-expanded", state.open.has(id));
+    return;
+  }
+
+  const button = ev.target.closest("[data-action]");
+  if (!button) return;
+  const action = button.dataset.action;
+
+  run(button, async () => {
+    if (action === "rewrite" || action === "restore") {
+      const box = card.querySelector("[data-reply]");
+      if (action === "rewrite") {
+        const field = card.querySelector("[data-instruction]");
+        const instruction = field.value.trim();
+        if (!instruction) throw new Error("Type what should change first.");
+        const r = await api("/api/rewrite", { message_id: id, reply: box.value, instruction });
+        box.value = r.reply;
+        field.value = "";
+        toast("Draft updated. Press Original to go back to the first one.", false, "✍");
+      } else {
+        box.value = originalReply(card);
+        toast("Original draft restored", false, "↩");
+      }
+      state.drafts[id] = box.value;
+      const save = card.querySelector('[data-action="draft"]');
+      if (save) save.disabled = !box.value.trim();
+      syncOriginal(card);
+      return;
+    }
+    if (action === "draft") {
+      const reply = card.querySelector("[data-reply]").value;
+      await api("/api/draft", { message_id: id, reply });
+      delete state.drafts[id];
+      toast("Saved to your Gmail Drafts (not sent)", false, "📝");
+    } else {
+      await api("/api/status", { message_id: id, status: action });
+      toast(action === "dismissed" ? "Email dismissed" : "Email restored", false, action === "dismissed" ? "🗑" : "↩");
+    }
+    card.classList.add("removing");
+    setTimeout(async () => { await load(); }, 380);
+  });
+});
+
+/* init */
+(async () => {
+  try {
+    const cfg = await api("/api/config");
+    pollStatus();
+    setInterval(pollStatus, 20000);
+    // Pick up emails that autopilot analysed in the background, but never while
+    // something is open or being typed into (that would wipe an unsaved draft).
+    setInterval(() => {
+      const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
+      if (!document.hidden && !typing && state.open.size === 0) load().catch(() => {});
+    }, 30000);
+    state.mailbox = cfg.email;
+    state.name = cfg.name || "";
+    $("meta").textContent = `${cfg.email} · model ${cfg.model}`;
+    await load();
+  } catch (err) {
+    toast(err.message, true);
+  }
+})();
+</script>
+</body>
+</html>

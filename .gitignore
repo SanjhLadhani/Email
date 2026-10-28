@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.env
+credentials.json
+token.json
+*.db
+*.log
+triage.backup*.db
+profile.json
+api_usage.json
