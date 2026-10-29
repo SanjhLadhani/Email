@@ -166,6 +166,24 @@ project root).
 
 ---
 
+## Tests
+
+`tests/` is a unit test suite covering the code that does not need a model or a real mailbox: the
+schemas, the SQLite storage layer, the agent's tools and reply-cleanup logic, the sync/pipeline logic,
+and the Flask API (with Gmail and the model mocked). Every test runs against its own throwaway SQLite
+file (see `tests/conftest.py`), never `triage.db`, and nothing in the suite touches the network or your
+real inbox.
+
+```powershell
+.\.venv\Scripts\pip install pytest
+.\.venv\Scripts\python.exe -m pytest tests/ -q
+```
+
+This does not replace `agent.evals` (above), which measures the *model's* judgment on real emails -
+the unit tests only check the surrounding code.
+
+---
+
 ## Configuration (`.env`)
 
 `.env` is git-ignored. It is re-read on every access, so editing it does not need a restart (the one
