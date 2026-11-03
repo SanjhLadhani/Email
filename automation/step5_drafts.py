@@ -65,7 +65,7 @@ def draft_states(drafted: list[tuple[str, str]]) -> dict[str, str]:
     usable = [(i, s) for i, s in drafted if i.isascii() and '"' not in i and "\\" not in i]
     address, password = config.require_email_credentials()
     states: dict[str, str] = {}
-    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+    with imaplib.IMAP4_SSL(config.IMAP_HOST, timeout=config.IMAP_TIMEOUT) as imap:
         imap.login(address, password)
 
         def replies_to(folder: str, ids: list[str]) -> set[str]:
@@ -97,7 +97,7 @@ def save_draft(sender: str, subject: str, body: str, message_id: str | None = No
     """
     msg = build_draft(sender, subject, body, message_id)
     address, password = config.require_email_credentials()
-    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+    with imaplib.IMAP4_SSL(config.IMAP_HOST, timeout=config.IMAP_TIMEOUT) as imap:
         imap.login(address, password)
         status, _ = imap.append(
             DRAFTS_FOLDER, "\\Draft", imaplib.Time2Internaldate(time.time()),

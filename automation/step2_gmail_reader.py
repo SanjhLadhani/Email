@@ -119,7 +119,7 @@ def fetch_emails(
     address, password = config.require_email_credentials()
     emails: list[Email] = []
     criteria = ["UNSEEN"] if unread_only else ["ALL"]
-    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+    with imaplib.IMAP4_SSL(config.IMAP_HOST, timeout=config.IMAP_TIMEOUT) as imap:
         imap.login(address, password)
         imap.select("INBOX", readonly=True)
         if since or until:
@@ -156,7 +156,7 @@ def unread_counts() -> dict:
     in its sidebar when tabs are on.
     """
     address, password = config.require_email_credentials()
-    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+    with imaplib.IMAP4_SSL(config.IMAP_HOST, timeout=config.IMAP_TIMEOUT) as imap:
         imap.login(address, password)
         _, data = imap.status("INBOX", "(UNSEEN)")
         match = re.search(rb"UNSEEN (\d+)", data[0])
@@ -184,7 +184,7 @@ def count_unread_among(message_ids: list[str], primary_only: bool = False) -> in
         return 0
     address, password = config.require_email_credentials()
     total = 0
-    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+    with imaplib.IMAP4_SSL(config.IMAP_HOST, timeout=config.IMAP_TIMEOUT) as imap:
         imap.login(address, password)
         imap.select("INBOX", readonly=True)
         for start in range(0, len(ids), 20):
@@ -213,7 +213,7 @@ def set_seen(message_id: str, seen: bool = True) -> dict | None:
         return None
     address, password = config.require_email_credentials()
     quoted = f'"{message_id}"'
-    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+    with imaplib.IMAP4_SSL(config.IMAP_HOST, timeout=config.IMAP_TIMEOUT) as imap:
         imap.login(address, password)
         imap.select("INBOX")  # writable: the flag is changed below
         nums = imap.search(None, "HEADER", "Message-ID", quoted)[1][0].split()
@@ -233,7 +233,7 @@ def fetch_body(message_id: str) -> str | None:
     Returns None if the email is no longer in the inbox.
     """
     address, password = config.require_email_credentials()
-    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+    with imaplib.IMAP4_SSL(config.IMAP_HOST, timeout=config.IMAP_TIMEOUT) as imap:
         imap.login(address, password)
         imap.select("INBOX", readonly=True)
         _, data = imap.search(None, "HEADER", "Message-ID", f'"{message_id}"')
@@ -261,7 +261,7 @@ def find_sent_reply(subject: str, days: int = 30) -> str | None:
     if not core or not core.isascii():
         raise ValueError("this subject cannot be searched")
     address, password = config.require_email_credentials()
-    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+    with imaplib.IMAP4_SSL(config.IMAP_HOST, timeout=config.IMAP_TIMEOUT) as imap:
         imap.login(address, password)
         imap.select(SENT_FOLDER, readonly=True)
         _, data = imap.search(None, "SINCE", _imap_date(date.today() - timedelta(days=days)), "SUBJECT", f'"{core}"')
@@ -284,7 +284,7 @@ def fetch_received_dates(message_ids: list[str]) -> dict[str, str]:
     """
     address, password = config.require_email_credentials()
     found: dict[str, str] = {}
-    with imaplib.IMAP4_SSL(config.IMAP_HOST) as imap:
+    with imaplib.IMAP4_SSL(config.IMAP_HOST, timeout=config.IMAP_TIMEOUT) as imap:
         imap.login(address, password)
         imap.select("INBOX", readonly=True)
         for message_id in message_ids:

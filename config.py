@@ -37,6 +37,9 @@ EMAIL_ADDRESS = _env("EMAIL_ADDRESS")
 # Gmail shows app passwords in groups of four; the spaces are not part of it.
 EMAIL_APP_PASSWORD = _env("EMAIL_APP_PASSWORD").replace(" ", "")
 IMAP_HOST = _env("IMAP_HOST", "imap.gmail.com")
+# Without this, a stalled connection (laptop sleep, wifi drop) blocks the caller forever:
+# imaplib sets no default timeout, so a dead socket just never returns.
+IMAP_TIMEOUT = 30
 
 _remote = {"checked_at": 0.0, "data": {}}
 
